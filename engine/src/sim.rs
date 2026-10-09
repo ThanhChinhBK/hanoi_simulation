@@ -11,27 +11,65 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, VecDeque};
 use std::sync::Arc;
 
+use std::collections::HashMap;
+
 use crate::demand::Demand;
 use crate::events::SimEvent;
-use crate::ids::{LinkId, NodeId, VehicleId};
+use crate::ids::{LinkId, NodeId, VehicleId, VehicleTypeId};
 use crate::network::Network;
+use crate::routing::astar;
+use crate::stats::{Stats, StatsConfig, Trace};
+use crate::traveltime::TravelTimes;
 use crate::units::{milli_pcu, MilliPcu, TimeMs, US_PER_MS};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SimConfig {
     /// Fraction f of the population simulated; capacities and storage are scaled by f.
     pub sample_fraction: f64,
+    /// Storage scale factor; `None` → `sample_fraction`. Small samples usually need a
+    /// larger storage factor than flow factor to avoid exaggerated spillback
+    /// (MATSim practice: about f^0.75).
+    pub storage_fraction: Option<f64>,
     /// A head vehicle blocked by a full downstream link for this long is pushed through.
     pub stuck_threshold_ms: TimeMs,
+    /// Keep the full event log (tests, debugging). Off for large runs.
+    pub record_log: bool,
+    /// Aggregate link travel times and delay in time bins.
+    pub stats: Option<StatsConfig>,
+    /// Record the full path of every k-th vehicle (0 = none), for animation.
+    pub trace_every: u32,
 }
 
 impl Default for SimConfig {
     fn default() -> Self {
         Self {
             sample_fraction: 1.0,
+            storage_fraction: None,
             stuck_threshold_ms: 60_000,
+            record_log: true,
+            stats: None,
+            trace_every: 0,
         }
     }
+}
+
+/// En-route rerouting. Without it, vehicles wait at closed links (step-1 behaviour).
+#[derive(Clone, Debug)]
+pub struct RerouteConfig {
+    /// Per trip: knows about disruptions network-wide as they happen. Others only
+    /// discover a disruption when they reach it. Empty = nobody informed.
+    pub informed: Vec<bool>,
+    /// Max reroutes per vehicle triggered by slow (not closed) links.
+    pub max_reroutes: u8,
+    /// A link counts as disrupted when its incident/rain/flood capacity or speed
+    /// multiplier falls below this.
+    pub disruption_threshold: f64,
+    /// Expected (e.g. baseline) travel times; free flow if None.
+    pub expected: Option<Arc<TravelTimes>>,
+    /// Closures are signposted: a closed link this far ahead on the route (m, counted
+    /// from the end of the next link) is seen at the current junction, so drivers can
+    /// detour before they are trapped in front of it. 0 = only the next link.
+    pub closure_visibility_m: f64,
 }
 
 /// Independent sources of capacity/speed modification. Factors multiply.
@@ -43,6 +81,12 @@ pub enum FactorSource {
     Flood = 3,
 }
 const N_SOURCES: usize = 4;
+/// Sources that count as a disruption (signals are normal operation).
+const DISRUPTION_SOURCES: [usize; 3] = [
+    FactorSource::Incident as usize,
+    FactorSource::Rain as usize,
+    FactorSource::Flood as usize,
+];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SimError(pub String);
@@ -54,7 +98,7 @@ impl std::fmt::Display for SimError {
 }
 impl std::error::Error for SimError {}
 
-/// Vehicle counts by state. Conservation: departed = waiting + on_links + arrived.
+/// Vehicle counts by state. Conservation: departed = waiting + on_links + arrived + aborted.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Counts {
     pub not_departed: usize,
@@ -62,7 +106,10 @@ pub struct Counts {
     pub waiting: usize,
     pub on_links: usize,
     pub arrived: usize,
+    /// Removed because no route to the destination exists (e.g. closures).
+    pub aborted: usize,
     pub stuck_pushes: usize,
+    pub reroutes: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,15 +118,24 @@ enum VehStatus {
     Waiting,
     OnLink,
     Arrived,
+    Aborted,
 }
 
 #[derive(Clone, Debug)]
 struct VehicleState {
+    route: Vec<LinkId>,
     route_pos: usize,
     earliest_exit: TimeMs,
+    entered_at: TimeMs,
+    departed_at: TimeMs,
     pcu: MilliPcu,
     max_speed: f64,
     status: VehStatus,
+    vtype: VehicleTypeId,
+    reroutes: u8,
+    informed: bool,
+    known_epoch: u32,
+    trace: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -93,7 +149,8 @@ struct LinkState {
     base_cap: f64,
     cap_factors: [f64; N_SOURCES],
     speed_factors: [f64; N_SOURCES],
-    closed: bool,
+    /// Number of active closures (user closures and flood closures can overlap).
+    closed: u16,
     /// Earliest time (µs) the next vehicle may exit (flow-capacity token).
     next_exit_us: i64,
     blocked_since: Option<TimeMs>,
@@ -108,6 +165,12 @@ impl LinkState {
     }
     fn has_space(&self) -> bool {
         self.used < self.storage
+    }
+    fn disruption_cap(&self) -> f64 {
+        DISRUPTION_SOURCES.iter().map(|&s| self.cap_factors[s]).product()
+    }
+    fn disruption_speed(&self) -> f64 {
+        DISRUPTION_SOURCES.iter().map(|&s| self.speed_factors[s]).product()
     }
 }
 
@@ -174,6 +237,14 @@ pub struct Sim {
     now: TimeMs,
     log: Vec<SimEvent>,
     counts: Counts,
+    reroute: Option<RerouteConfig>,
+    /// Bumped whenever a new disruption appears (informed vehicles re-check routes).
+    epoch: u32,
+    /// Disruptions each uninformed vehicle has discovered.
+    known: HashMap<VehicleId, Vec<LinkId>>,
+    stats: Option<Stats>,
+    traces: Vec<Trace>,
+    arrive_ms: Vec<TimeMs>,
 }
 
 impl Sim {
@@ -181,6 +252,10 @@ impl Sim {
         let f = cfg.sample_fraction;
         if !(f > 0.0 && f <= 1.0) {
             return Err(SimError("sample_fraction must be in (0, 1]".into()));
+        }
+        let sf = cfg.storage_fraction.unwrap_or(f);
+        if !(sf > 0.0 && sf <= 1.0) {
+            return Err(SimError("storage_fraction must be in (0, 1]".into()));
         }
         if cfg.stuck_threshold_ms <= 0 {
             return Err(SimError("stuck_threshold_ms must be > 0".into()));
@@ -212,14 +287,39 @@ impl Sim {
             {
                 return Err(err("route is not contiguous"));
             }
+            let trace = (cfg.trace_every > 0 && i % cfg.trace_every as usize == 0)
+                .then(|| i as u32 / cfg.trace_every);
             vehicles.push(VehicleState {
+                route: trip.route.clone(),
                 route_pos: 0,
                 earliest_exit: 0,
+                entered_at: 0,
+                departed_at: 0,
                 pcu: milli_pcu(vt.pcu),
                 max_speed: vt.max_speed_mps,
                 status: VehStatus::NotDeparted,
+                vtype: trip.vehicle_type,
+                reroutes: 0,
+                informed: false,
+                known_epoch: 0,
+                trace,
             });
         }
+        let traces = vehicles
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.trace.is_some())
+            .map(|(i, v)| Trace {
+                vehicle: VehicleId(i as u32),
+                vehicle_type: v.vtype,
+                links: Vec::new(),
+                end_ms: None,
+            })
+            .collect();
+        let stats = cfg
+            .stats
+            .clone()
+            .map(|c| Stats::new(c, net.links().len()));
 
         let links = net
             .links()
@@ -228,11 +328,11 @@ impl Sim {
                 queue: VecDeque::new(),
                 waiting: VecDeque::new(),
                 used: 0,
-                storage: milli_pcu(l.storage_pcu * f),
+                storage: milli_pcu(l.storage_pcu * sf),
                 base_cap: l.flow_capacity_pcu_per_s() * f * 1000.0,
                 cap_factors: [1.0; N_SOURCES],
                 speed_factors: [1.0; N_SOURCES],
-                closed: false,
+                closed: 0,
                 next_exit_us: i64::MIN,
                 blocked_since: None,
             })
@@ -261,6 +361,12 @@ impl Sim {
             seq: 0,
             now: TimeMs::MIN,
             log: Vec::new(),
+            reroute: None,
+            epoch: 0,
+            known: HashMap::new(),
+            stats,
+            traces,
+            arrive_ms: vec![-1; demand.trips.len()],
         };
         for (i, trip) in demand.trips.iter().enumerate() {
             sim.push(trip.depart_ms, Action::Departure(VehicleId(i as u32)));
@@ -272,6 +378,39 @@ impl Sim {
 
     pub fn now(&self) -> TimeMs {
         self.now
+    }
+    pub fn demand(&self) -> &Demand {
+        &self.demand
+    }
+    /// Enable en-route rerouting (call before running).
+    pub fn set_rerouting(&mut self, cfg: RerouteConfig) -> Result<(), SimError> {
+        if !cfg.informed.is_empty() && cfg.informed.len() != self.vehicles.len() {
+            return Err(SimError("informed flags must match the number of trips".into()));
+        }
+        for (v, &inf) in self.vehicles.iter_mut().zip(&cfg.informed) {
+            v.informed = inf;
+        }
+        self.reroute = Some(cfg);
+        Ok(())
+    }
+    /// Current route of a vehicle (changes when it reroutes).
+    pub fn vehicle_route(&self, v: VehicleId) -> &[LinkId] {
+        &self.vehicles[v.idx()].route
+    }
+    /// Arrival time per trip; -1 if not arrived (yet, or aborted).
+    pub fn arrival_times(&self) -> &[TimeMs] {
+        &self.arrive_ms
+    }
+    pub fn stats(&self) -> Option<&Stats> {
+        self.stats.as_ref()
+    }
+    pub fn traces(&self) -> &[Trace] {
+        &self.traces
+    }
+    /// Consume the simulation, keeping its outputs.
+    pub fn into_outputs(self) -> (Option<Stats>, Vec<Trace>, Vec<TimeMs>, Vec<Vec<LinkId>>) {
+        let routes = self.vehicles.into_iter().map(|v| v.route).collect();
+        (self.stats, self.traces, self.arrive_ms, routes)
     }
     pub fn log(&self) -> &[SimEvent] {
         &self.log
@@ -354,6 +493,7 @@ impl Sim {
     }
 
     /// Closed links accept no new vehicles; vehicles already on them may leave.
+    /// Closures nest: each `closed = true` must be matched by a `closed = false`.
     pub fn schedule_closure(
         &mut self,
         at: TimeMs,
@@ -386,6 +526,7 @@ impl Sim {
                 factor,
             } => {
                 self.links[link.idx()].cap_factors[source as usize] = factor;
+                self.bump_epoch_if_disrupted(link);
                 self.wake_both_ends(link);
             }
             Action::SetSpeedFactor {
@@ -394,9 +535,12 @@ impl Sim {
                 factor,
             } => {
                 self.links[link.idx()].speed_factors[source as usize] = factor;
+                self.bump_epoch_if_disrupted(link);
             }
             Action::SetClosed { link, closed } => {
-                self.links[link.idx()].closed = closed;
+                let ls = &mut self.links[link.idx()];
+                ls.closed = if closed { ls.closed + 1 } else { ls.closed.saturating_sub(1) };
+                self.bump_epoch_if_disrupted(link);
                 self.wake_both_ends(link);
             }
         }
@@ -425,7 +569,7 @@ impl Sim {
                 "count mismatch: {c:?} vs waiting={waiting} on_links={on_links}"
             ));
         }
-        if c.departed != c.waiting + c.on_links + c.arrived {
+        if c.departed != c.waiting + c.on_links + c.arrived + c.aborted {
             return Err(format!("conservation violated: {c:?}"));
         }
         if c.not_departed + c.departed != self.vehicles.len() {
@@ -438,8 +582,7 @@ impl Sim {
             }
             for v in &l.queue {
                 let vs = &self.vehicles[v.idx()];
-                let trip = &self.demand.trips[v.idx()];
-                if vs.status != VehStatus::OnLink || trip.route[vs.route_pos].idx() != i {
+                if vs.status != VehStatus::OnLink || vs.route[vs.route_pos].idx() != i {
                     return Err(format!("link {i}: vehicle {} in wrong state", v.0));
                 }
             }
@@ -490,21 +633,136 @@ impl Sim {
     }
 
     fn route_link(&self, v: VehicleId, pos: usize) -> LinkId {
-        self.demand.trips[v.idx()].route[pos]
+        self.vehicles[v.idx()].route[pos]
     }
 
     fn is_last_link(&self, v: VehicleId) -> bool {
-        self.vehicles[v.idx()].route_pos + 1 == self.demand.trips[v.idx()].route.len()
+        let vs = &self.vehicles[v.idx()];
+        vs.route_pos + 1 == vs.route.len()
+    }
+
+    fn emit(&mut self, e: SimEvent) {
+        if self.cfg.record_log {
+            self.log.push(e);
+        }
+    }
+
+    fn is_disrupted(&self, l: LinkId) -> bool {
+        let thr = self.reroute.as_ref().map_or(0.0, |r| r.disruption_threshold);
+        let s = &self.links[l.idx()];
+        s.closed > 0 || s.disruption_cap() < thr || s.disruption_speed() < thr
+    }
+
+    fn bump_epoch_if_disrupted(&mut self, l: LinkId) {
+        if self.reroute.is_some() && self.is_disrupted(l) {
+            self.epoch += 1;
+        }
+    }
+
+    /// First closed, not yet known link within the closure visibility distance beyond
+    /// the vehicle's next link.
+    fn closed_ahead(&self, v: VehicleId) -> Option<LinkId> {
+        let vis = self.reroute.as_ref().map_or(0.0, |r| r.closure_visibility_m);
+        if !(vis > 0.0) {
+            return None;
+        }
+        let vs = &self.vehicles[v.idx()];
+        let known = self.known.get(&v);
+        let mut dist = 0.0;
+        for &l in vs.route.iter().skip(vs.route_pos + 2) {
+            if dist > vis {
+                break;
+            }
+            if self.links[l.idx()].closed > 0 && !known.is_some_and(|k| k.contains(&l)) {
+                return Some(l);
+            }
+            dist += self.net.link(l).length_m;
+        }
+        None
+    }
+
+    /// Informed vehicles re-check their remaining route once per new disruption.
+    fn maybe_informed_reroute(&mut self, v: VehicleId, at: LinkId) {
+        let Some(max) = self.reroute.as_ref().map(|r| r.max_reroutes) else {
+            return;
+        };
+        let vs = &self.vehicles[v.idx()];
+        if !vs.informed || vs.known_epoch == self.epoch {
+            return;
+        }
+        let hit = vs.route[vs.route_pos + 1..]
+            .iter()
+            .any(|&l| self.is_disrupted(l));
+        self.vehicles[v.idx()].known_epoch = self.epoch;
+        if hit && self.vehicles[v.idx()].reroutes < max {
+            self.vehicles[v.idx()].reroutes += 1;
+            self.reroute_vehicle(v, at);
+        }
+    }
+
+    /// Replace the rest of `v`'s route after link `at` with the best path to its
+    /// destination given what it knows. Returns false if no path exists.
+    fn reroute_vehicle(&mut self, v: VehicleId, at: LinkId) -> bool {
+        let rc = self.reroute.as_ref().expect("rerouting enabled");
+        let vs = &self.vehicles[v.idx()];
+        let dest = self.net.link(*vs.route.last().expect("route")).to;
+        let from = self.net.link(at).to;
+        let informed = vs.informed;
+        let known = self.known.get(&v);
+        let net = &self.net;
+        let links = &self.links;
+        let cost = |l: LinkId, t: TimeMs| -> Option<TimeMs> {
+            let ls = &links[l.idx()];
+            let link = net.link(l);
+            let ff = link.length_m * 1000.0 / link.free_speed_mps;
+            let mut c = rc.expected.as_ref().map_or(ff, |tt| tt.get(l, t) as f64);
+            if informed || known.is_some_and(|k| k.contains(&l)) {
+                if ls.closed > 0 {
+                    return None;
+                }
+                c = c.max(ff / ls.disruption_speed());
+                c /= ls.disruption_cap().clamp(0.05, 1.0);
+            }
+            Some((c.ceil() as TimeMs).max(1))
+        };
+        let Some(path) = astar(net, from, dest, self.now, cost) else {
+            return false;
+        };
+        let vs = &mut self.vehicles[v.idx()];
+        debug_assert_eq!(vs.route[vs.route_pos], at);
+        let pos = vs.route_pos;
+        vs.route.truncate(pos + 1);
+        vs.route.extend(path);
+        self.counts.reroutes += 1;
+        true
+    }
+
+    /// Remove the head of `l` from the simulation (no route to its destination).
+    fn abort_head(&mut self, l: LinkId) {
+        let v = self.pop_head(l);
+        self.vehicles[v.idx()].status = VehStatus::Aborted;
+        self.counts.aborted += 1;
+        self.emit(SimEvent::Abort {
+            t: self.now,
+            vehicle: v,
+            link: l,
+        });
+        self.on_space_freed(l);
     }
 
     fn on_departure(&mut self, v: VehicleId) {
         let l = self.route_link(v, 0);
+        self.maybe_informed_reroute(v, l);
+        self.vehicles[v.idx()].departed_at = self.now;
         self.vehicles[v.idx()].status = VehStatus::Waiting;
         self.counts.not_departed -= 1;
         self.counts.departed += 1;
         self.counts.waiting += 1;
         self.links[l.idx()].waiting.push_back(v);
-        self.log.push(SimEvent::Depart {
+        if let Some(st) = self.stats.as_mut() {
+            st.add_departure(self.now);
+        }
+        self.emit(SimEvent::Depart {
             t: self.now,
             vehicle: v,
             link: l,
@@ -533,13 +791,21 @@ impl Sim {
         ls.used += pcu;
         let vs = &mut self.vehicles[v.idx()];
         vs.earliest_exit = earliest_exit;
+        vs.entered_at = self.now;
         vs.status = VehStatus::OnLink;
+        let trace = vs.trace;
         self.counts.on_links += 1;
-        self.log.push(SimEvent::LinkEnter {
+        self.emit(SimEvent::LinkEnter {
             t: self.now,
             vehicle: v,
             link: l,
         });
+        if let Some(k) = trace {
+            self.traces[k as usize].links.push((l, self.now));
+        }
+        if self.vehicles[v.idx()].route_pos > 0 {
+            self.maybe_informed_reroute(v, l);
+        }
         if was_empty {
             let to = self.net.link(l).to;
             self.schedule_node(to, earliest_exit);
@@ -553,11 +819,24 @@ impl Sim {
         ls.used -= self.vehicles[v.idx()].pcu;
         ls.blocked_since = None;
         self.counts.on_links -= 1;
-        self.log.push(SimEvent::LinkLeave {
+        self.emit(SimEvent::LinkLeave {
             t: self.now,
             vehicle: v,
             link: l,
         });
+        if let Some(st) = self.stats.as_mut() {
+            let vs = &self.vehicles[v.idx()];
+            if vs.route_pos == 0 {
+                // Origin link: vehicles start at its end; time spent = waiting to enter.
+                st.add_delay(self.now, (self.now - vs.departed_at) as f64);
+            } else {
+                let link = self.net.link(l);
+                let ff = link.length_m * 1000.0 / link.free_speed_mps.min(vs.max_speed);
+                let tt = (self.now - vs.entered_at) as f64;
+                st.add_link(l, vs.entered_at, tt);
+                st.add_delay(self.now, tt - ff);
+            }
+        }
         v
     }
 
@@ -576,7 +855,14 @@ impl Sim {
             self.pop_head(l);
             self.vehicles[v.idx()].status = VehStatus::Arrived;
             self.counts.arrived += 1;
-            self.log.push(SimEvent::Arrive {
+            self.arrive_ms[v.idx()] = self.now;
+            if let Some(st) = self.stats.as_mut() {
+                st.add_arrival(self.now);
+            }
+            if let Some(k) = self.vehicles[v.idx()].trace {
+                self.traces[k as usize].end_ms = Some(self.now);
+            }
+            self.emit(SimEvent::Arrive {
                 t: self.now,
                 vehicle: v,
                 link: l,
@@ -599,9 +885,37 @@ impl Sim {
     /// Try to move the head of `l` onto its next link. Returns true if moved.
     fn try_move_head(&mut self, l: LinkId) -> bool {
         let v = *self.links[l.idx()].queue.front().expect("head");
-        let next = self.route_link(v, self.vehicles[v.idx()].route_pos + 1);
-        if self.links[next.idx()].closed {
-            // Waiting for a closure is not gridlock; rerouting handles it (step 5).
+        let mut next = self.route_link(v, self.vehicles[v.idx()].route_pos + 1);
+        if self.reroute.is_some() {
+            if self.links[next.idx()].closed > 0 {
+                // Closures are always discovered on arrival; no reroute limit (each new
+                // route avoids every closure the vehicle knows of).
+                self.known.entry(v).or_default().push(next);
+                if !self.reroute_vehicle(v, l) {
+                    self.abort_head(l);
+                    return true;
+                }
+            } else if let Some(c) = self.closed_ahead(v) {
+                // Detour if possible; otherwise carry on and deal with it on arrival.
+                self.known.entry(v).or_default().push(c);
+                self.reroute_vehicle(v, l);
+            } else if self.is_disrupted(next)
+                && self.vehicles[v.idx()].reroutes
+                    < self.reroute.as_ref().map_or(0, |r| r.max_reroutes)
+                && !self.known.get(&v).is_some_and(|k| k.contains(&next))
+            {
+                self.known.entry(v).or_default().push(next);
+                self.vehicles[v.idx()].reroutes += 1;
+                self.reroute_vehicle(v, l);
+            }
+            if self.is_last_link(v) {
+                // New route ends here: hand over to arrival processing.
+                return true;
+            }
+            next = self.route_link(v, self.vehicles[v.idx()].route_pos + 1);
+        }
+        if self.links[next.idx()].closed > 0 {
+            // Waiting for a closure is not gridlock.
             self.links[l.idx()].blocked_since = None;
             return false;
         }
@@ -617,7 +931,7 @@ impl Sim {
 
         if forced {
             self.counts.stuck_pushes += 1;
-            self.log.push(SimEvent::Stuck {
+            self.emit(SimEvent::Stuck {
                 t: self.now,
                 vehicle: v,
                 link: l,
@@ -700,7 +1014,7 @@ impl Sim {
         }
         // Ready but blocked downstream: wake for the gridlock breaker (if not a closure).
         let next = self.route_link(v, vs.route_pos + 1);
-        if self.links[next.idx()].closed {
+        if self.links[next.idx()].closed > 0 {
             return None;
         }
         ls.blocked_since.map(|s| s + self.cfg.stuck_threshold_ms)

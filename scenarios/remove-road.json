@@ -1,0 +1,12 @@
+{
+  "name": "A Láng segment removed permanently (structural)",
+  "base": "hanoi-inner",
+  "events": [
+    {
+      "type": "remove_road",
+      "links": [
+        4256
+      ]
+    }
+  ]
+}

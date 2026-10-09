@@ -61,6 +61,7 @@ impl Link {
 pub struct Network {
     nodes: Vec<Node>,
     links: Vec<Link>,
+    max_free_speed_mps: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +86,15 @@ impl Network {
     }
     pub fn link(&self, id: LinkId) -> &Link {
         &self.links[id.idx()]
+    }
+    /// Highest free speed of any link (for admissible A* heuristics).
+    pub fn max_free_speed_mps(&self) -> f64 {
+        self.max_free_speed_mps
+    }
+    /// Straight-line distance between two nodes (node coordinates are metres).
+    pub fn node_dist_m(&self, a: NodeId, b: NodeId) -> f64 {
+        let (p, q) = (self.node(a), self.node(b));
+        (p.x - q.x).hypot(p.y - q.y)
     }
 }
 
@@ -159,6 +169,14 @@ impl NetworkBuilder {
                 storage_pcu,
             });
         }
-        Ok(Network { nodes, links })
+        let max_free_speed_mps = links
+            .iter()
+            .map(|l: &Link| l.free_speed_mps)
+            .fold(1.0, f64::max);
+        Ok(Network {
+            nodes,
+            links,
+            max_free_speed_mps,
+        })
     }
 }

@@ -1,0 +1,13 @@
+{
+  "name": "Crash on Nguyễn Trãi, 07:30–08:15",
+  "base": "hanoi-inner",
+  "events": [
+    {
+      "type": "incident",
+      "link": 19000,
+      "from": "07:30",
+      "to": "08:15",
+      "capacity_factor": 0.3
+    }
+  ]
+}

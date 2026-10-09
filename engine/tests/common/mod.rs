@@ -169,6 +169,9 @@ pub fn check_log(sim: &Sim) {
             SimEvent::Arrive { vehicle, .. } => {
                 assert!(arrived.insert(vehicle), "double arrival {vehicle:?}");
             }
+            SimEvent::Abort { vehicle, .. } => {
+                assert!(arrived.insert(vehicle), "aborted after arrival {vehicle:?}");
+            }
         }
     }
 }

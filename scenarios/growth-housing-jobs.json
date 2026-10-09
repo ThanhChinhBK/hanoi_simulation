@@ -1,0 +1,25 @@
+{
+  "name": "New housing in Thanh Xuân, new offices in Cầu Giấy, +10% population",
+  "base": "hanoi-inner",
+  "events": [
+    {
+      "type": "housing",
+      "at": [
+        21.003,
+        105.815
+      ],
+      "population": 50000
+    },
+    {
+      "type": "jobs",
+      "at": [
+        21.03,
+        105.785
+      ],
+      "jobs": 20000
+    }
+  ],
+  "parameter_overrides": {
+    "population.scale": 1.1
+  }
+}

@@ -321,3 +321,24 @@ fn invalid_route_is_rejected() {
     }];
     assert!(Sim::new(net, demand(bad), SimConfig::default()).is_err());
 }
+
+/// T11: a chain of very short links holding less than one vehicle each (common in
+/// OSM after sampling) must still carry its flow capacity without queue build-up.
+#[test]
+fn t11_short_link_chain_keeps_capacity() {
+    let mut links = vec![(100.0, 10.0, 36_000.0, None)];
+    links.extend(std::iter::repeat_n((5.0, 10.0, 1_800.0, Some(0.5)), 20));
+    let (net, l) = chain(&links);
+    // 100 cars at 0.4 veh/s against a capacity of 0.5 veh/s.
+    let ts: Vec<Trip> = (0..100)
+        .flat_map(|k| trips(1, CAR, k * 2_500, &l))
+        .collect();
+    let mut s = sim(&net, ts, SimConfig::default());
+    run_checked(&mut s);
+    check_log(&s);
+    let arr = arrivals(s.log());
+    let last = *arr.last().unwrap();
+    println!("last arrival {last} ms, stuck pushes {}", s.counts().stuck_pushes);
+    assert!(last < secs(300), "last arrival {last}");
+    assert_eq!(s.counts().stuck_pushes, 0);
+}

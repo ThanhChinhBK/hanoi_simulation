@@ -1,0 +1,15 @@
+{
+  "name": "Two Láng segments closed all day (roadworks)",
+  "base": "hanoi-inner",
+  "events": [
+    {
+      "type": "closure",
+      "links": [
+        4256,
+        11154
+      ],
+      "from": "06:00",
+      "to": "22:00"
+    }
+  ]
+}

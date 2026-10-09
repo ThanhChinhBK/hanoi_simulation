@@ -1,0 +1,15 @@
+{
+  "name": "New 3-lane link Ngã Tư Sở – Kim Liên (straight line)",
+  "base": "hanoi-inner",
+  "events": [
+    {
+      "type": "add_road",
+      "from_node": 2974,
+      "to_node": 2147,
+      "road_class": "primary",
+      "lanes": 3,
+      "name": "New road"
+    }
+  ],
+  "description": "Adds a one-way 3-lane primary road from Ngã Tư Sở straight to the Kim Liên junction. Note: the new road arrives at a signalised junction as an extra east-west approach, so default green splits shift away from Lê Duẩn - in this model the new road can make things worse (try editing the signal at node 2147)."
+}

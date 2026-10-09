@@ -38,6 +38,12 @@ pub enum SimEvent {
         link: LinkId,
         next_link: LinkId,
     },
+    /// Vehicle removed: no route to its destination (e.g. all paths closed).
+    Abort {
+        t: TimeMs,
+        vehicle: VehicleId,
+        link: LinkId,
+    },
 }
 
 impl SimEvent {
@@ -47,7 +53,8 @@ impl SimEvent {
             | SimEvent::LinkEnter { t, .. }
             | SimEvent::LinkLeave { t, .. }
             | SimEvent::Arrive { t, .. }
-            | SimEvent::Stuck { t, .. } => t,
+            | SimEvent::Stuck { t, .. }
+            | SimEvent::Abort { t, .. } => t,
         }
     }
 }

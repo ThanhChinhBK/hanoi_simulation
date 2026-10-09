@@ -1,0 +1,15 @@
+{
+  "name": "Longer cycle at Ngã Tư Sở",
+  "base": "hanoi-inner",
+  "events": [
+    {
+      "type": "signal",
+      "node": 2974,
+      "cycle_s": 150,
+      "green_split": {
+        "north_south": 0.4,
+        "east_west": 0.6
+      }
+    }
+  ]
+}

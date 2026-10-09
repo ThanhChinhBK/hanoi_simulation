@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e7488c740fb76b608e03238eb46eac8cd02348ff3e8245259e4b47549b4824cc # shrinks to c = Case { n: 2, link_params: [(20.0, 3.0, 300.0, 0.5)], trips: [(0, 0, 0, false)], stuck_s: 1 }
+cc 8e830d83423a7779128ebed48a40acd6e058f4785cd18efdb3e0ea973c1c6458 # shrinks to c = Case { n: 2, link_params: [(20.0, 3.0, 300.0, 0.5)], trips: [(0, 0, 0, false)], stuck_s: 1 }
+cc 0a0cf73561af166b3893c98fe1e6ae26958dad9ce3b3668f2e2287ab0780a27b # shrinks to c = Case { n: 2, link_params: [(20.0, 3.0, 300.0, 0.5)], trips: [(23, 384, 252, true)], stuck_s: 2 }

@@ -1,0 +1,32 @@
+{
+  "name": "80 mm/h thunderstorm at 7:30 (catchment bucket model)",
+  "base": "hanoi-inner",
+  "events": [
+    {
+      "type": "rain",
+      "profile": [
+        {
+          "at": "07:00",
+          "mm_per_hour": 15
+        },
+        {
+          "at": "07:30",
+          "mm_per_hour": 80
+        },
+        {
+          "at": "08:30",
+          "mm_per_hour": 10
+        },
+        {
+          "at": "09:30",
+          "mm_per_hour": 0
+        }
+      ],
+      "flood_model": "bucket"
+    }
+  ],
+  "parameter_overrides": {
+    "reroute.informed_share": 0.4,
+    "flood.motorbike_stall_depth_cm": 25
+  }
+}
