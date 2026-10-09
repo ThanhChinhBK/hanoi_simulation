@@ -1,0 +1,16 @@
+[package]
+name = "hanoi-engine-py"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Python bindings for the Hanoi traffic engine (calibration, analysis)"
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+hanoi-engine = { path = "../engine" }
+serde_json = "1"
+pyo3 = { version = "0.27", features = ["abi3-py312"] }

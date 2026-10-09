@@ -23,3 +23,7 @@ pkg/
 .idea/
 .vscode/
 *.swp
+
+# Python extension build artefacts
+*.so
+*.pyd

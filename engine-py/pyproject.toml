@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "hanoi-engine"
+version = "0.1.0"
+description = "Python bindings for the Hanoi traffic engine"
+requires-python = ">=3.12"
+dependencies = ["numpy>=2"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "hanoi_engine._native"
+features = ["pyo3/extension-module"]
