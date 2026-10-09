@@ -1,0 +1,66 @@
+id,label,kind,streets,status
+1,"Đại lộ Thăng Long (hầm chui số 5, 6, Km9+656)",underpass,Đại lộ Thăng Long,outside
+2,Tổ dân phố số 1+4 P. Yên Nghĩa,area,,outside
+3,Đường Quyết Thắng,street,Quyết Thắng,outside
+4,Yên Nghĩa (từ bến xe Yên Nghĩa đến ngã ba Ba La),street,,outside
+5,Khu TT18 P. Phú La,area,,outside
+6,Phố Trần Bình (UBND P. Mai Dịch đến Bệnh viện 19/8),street,Trần Bình,
+7,Phố Phan Văn Trường (cổng chợ - doanh trại quân đội),street,Phan Văn Trường,
+8,Đường Quang Trung (đối diện nhà ga La Khê P. Hà Đông),street,,outside
+9,Đường Hoàng Quốc Việt (Đại học Điện Lực),street,Hoàng Quốc Việt,
+10,Ngã ba Mỹ Đình - Thiên Hiền,intersection,Mỹ Đình;Thiên Hiền,
+11,Phố Xốm (đoạn cây xăng; P. Phú Lương),street,,outside
+12,Đường Lê Đức Thọ (quảng trường sân vận động Mỹ Đình),street,Lê Đức Thọ,outside
+13,Đường Quang Trung (trước Trường THPT Nguyễn Huệ),street,,outside
+14,Phố Hoa Bằng (ngõ 99),street,Hoa Bằng,
+15,Đường Phú Xá (ngã ba Phú Xá - Phúc Hoa),street,,outside
+16,Đường Võ Chí Công (tòa nhà UDIC),street,Võ Chí Công,
+17,Khu đô thị RESCO,area,,outside
+18,Phố Dương Đình Nghệ - phố Nam Trung Yên (sau KeangNam),intersection,Dương Đình Nghệ;Nam Trung Yên,
+19,Phố Bùi Xương Trạch (số nhà 49 - 93),street,Bùi Xương Trạch,
+20,Phố Vương Thừa Vũ,street,Vương Thừa Vũ,
+21,Đường Nguyễn Trãi (ĐH Khoa học XH&NV - làn xe buýt),street,Nguyễn Trãi,
+22,Phố Thụy Khuê (Trường Chu Văn An - dốc La Phô),street,Thụy Khuê,
+23,Đường Đỗ Đức Dục (vào Miếu Đầm),street,Đỗ Đức Dục,
+24,Phố Cao Bá Quát (cổng Công ty Môi trường đô thị),street,Cao Bá Quát,
+25,Ngã tư Phan Bội Châu - Lý Thường Kiệt,intersection,Phan Bội Châu;Lý Thường Kiệt,
+26,Phố Nguyễn Khuyến (trước cổng Trường Lý Thường Kiệt),street,Nguyễn Khuyến,
+27,Phố Liên Trì - Nguyễn Gia Thiều,intersection,Liên Trì;Nguyễn Gia Thiều,
+28,Đường Lê Trọng Tấn (từ số nhà 16 - 86),street,Lê Trọng Tấn,
+29,Phố Thái Hà (ngõ 165; bể bơi Thái Hà),street,Thái Hà,
+30,192 Quán Thánh,street,Quán Thánh,
+31,Phố Quan Nhân,street,Quan Nhân,
+32,Ngã tư Điện Biên Phủ - Nguyễn Tri Phương,intersection,Điện Biên Phủ;Nguyễn Tri Phương,
+33,Đường 23B - đoạn qua thôn Cổ Điển - xã Hải Bối,street,,outside
+34,Phố Triều Khúc (ngõ 97 đến Ao Đình),street,Triều Khúc,
+35,Đường Tố Hữu (từ Lương Thế Vinh đến Trung Văn),intersection,Tố Hữu;Lương Thế Vinh,
+36,Đường Ngọc Hồi (số nhà 611 - 673),street,,outside
+37,155 Phùng Hưng,street,Phùng Hưng,
+38,Đường Nguyễn Xiển (từ ngã ba Nguyễn Trãi - Nguyễn Xiển đến ngõ 214),intersection,Nguyễn Xiển;Nguyễn Trãi,
+39,Phố Hoàng Tích Trí,street,Hoàng Tích Trí,
+40,Phố Huỳnh Thúc Kháng (ngã 3 Nguyên Hồng - ngõ 14),intersection,Huỳnh Thúc Kháng;Nguyên Hồng,
+41,Phố Tông Đản (khách sạn Thủy Tiên),street,Tông Đản,
+42,Phùng Hưng - Bát Đàn - Đường Thành - Nhà Hỏa,intersection,Phùng Hưng;Bát Đàn,
+43,Phố Phạm Ngọc Thạch (nhà B7),street,Phạm Ngọc Thạch,
+44,Ngã ba Nguyễn Trường Tộ - Phan Huy Ích,intersection,Nguyễn Trường Tộ;Phan Huy Ích,
+45,Đường Thành - Hàng Nón,intersection,Đường Thành;Hàng Nón,
+46,Phố Thái Hà (đoạn số nhà 2 - 32),intersection,Thái Hà;Chùa Bộc,
+47,Phố Lương Định Của (ngã ba ngõ 91),street,Lương Định Của,
+48,Quang Trung - Trần Quốc Toản,intersection,Quang Trung;Trần Quốc Toản,
+49,Phố Thợ Nhuộm (giữa phố),street,Thợ Nhuộm,
+50,Ngã ba Tống Duy Tân - Điện Biên Phủ,intersection,Tống Duy Tân;Điện Biên Phủ,
+51,Ngã tư Tây Sơn - Thái Hà,intersection,Tây Sơn;Thái Hà,
+52,Phố Đội Cấn (số nhà 209 - Chùa Bát Tháp),street,Đội Cấn,
+53,Phố Liễu Giai (Ngân hàng Quân Đội),street,Liễu Giai,
+54,Phố Thành Công (trước UBND phường),street,Thành Công,
+55,Đường Hoàng Mai (từ ngõ 169 đến đường vào UBND P. Hoàng Văn Thụ),street,Hoàng Mai,
+56,Nguyễn Chính (từ ngõ 74 đến cống hóa mương Tân Mai),street,Nguyễn Chính,
+57,Ngã tư Tạ Hiện - Lương Ngọc Quyến,intersection,Tạ Hiện;Lương Ngọc Quyến,
+58,Hồ Hoàn Kiếm (đài phun nước),intersection,Đinh Tiên Hoàng;Hàng Đào,
+59,Phố Mạc Thị Bưởi,street,Mạc Thị Bưởi,
+60,Phố Định Công,street,Định Công,
+61,Phố Trương Định (đồn Công an P. Trương Định),street,Trương Định,
+62,Đường 2.5 Đền Lừ (cạnh hồ Đền Lừ),street,Đền Lừ,
+63,Phố Minh Khai (chân cầu Vĩnh Tuy),street,Minh Khai,
+64,Đường Trần Cung (cây xăng A38),street,Trần Cung,
+65,Ngã năm Bà Triệu,intersection,Bà Triệu;Nguyễn Du,

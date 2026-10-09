@@ -1,0 +1,19 @@
+[project]
+name = "hanoi-pipeline"
+version = "0.1.0"
+description = "Offline data pipeline: OSM, WorldPop, DEM, flood points -> city bundle"
+requires-python = ">=3.12"
+dependencies = [
+    "geopandas>=1.2.0",
+    "numpy>=2.5.3",
+    "osmnx>=2.1.1",
+    "pyproj>=3.8.0",
+    "pytest>=9.1.1",
+    "rasterio>=1.5.2",
+    "requests>=2.34.2",
+    "shapely>=2.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
