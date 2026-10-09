@@ -1,0 +1,21 @@
+//! Mesoscopic link-queue traffic simulation (MATSim-style), event-driven.
+//!
+//! See `engine/README.md` for the model semantics.
+
+// `!(x > 0.0)` is used on purpose: it also rejects NaN inputs.
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
+
+pub mod demand;
+pub mod events;
+pub mod ids;
+pub mod network;
+pub mod routing;
+pub mod sim;
+pub mod units;
+
+pub use demand::{Demand, Trip, VehicleType};
+pub use events::SimEvent;
+pub use ids::{LinkId, NodeId, VehicleId, VehicleTypeId};
+pub use network::{LinkSpec, Network, NetworkBuilder};
+pub use sim::{Counts, FactorSource, Sim, SimConfig, SimError};
+pub use units::{secs, MilliPcu, TimeMs};

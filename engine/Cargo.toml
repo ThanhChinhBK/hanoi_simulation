@@ -1,0 +1,13 @@
+[package]
+name = "hanoi-engine"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Mesoscopic queue-based traffic simulation core for the Hanoi what-if sandbox"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+proptest = "1"
+serde_json = "1"

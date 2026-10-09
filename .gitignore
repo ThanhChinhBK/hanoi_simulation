@@ -1,0 +1,25 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Python (pipeline, engine-py)
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+
+# Web
+node_modules/
+dist/
+pkg/
+
+# Large / downloaded data (pipeline outputs, raw OSM/rasters)
+/data/
+*.osm.pbf
+*.tif
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
