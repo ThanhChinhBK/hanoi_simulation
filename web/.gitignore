@@ -1,0 +1,7 @@
+node_modules/
+dist/
+public/data/
+public/scenarios/
+e2e/screenshots/
+test-results/
+playwright-report/
