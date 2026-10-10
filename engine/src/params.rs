@@ -727,7 +727,10 @@ impl Default for Params {
             "mm",
             (0.0, 2000.0),
             Flood,
-            ("assumption: regulating lakes keep ~0.3 m of freeboard before the storm", Low),
+            (
+                "assumption: regulating lakes keep ~0.3 m of freeboard before the storm",
+                Low,
+            ),
             "Bucket model: water-level rise lakes can absorb; storage = open-water share × this.",
         );
         p.add(

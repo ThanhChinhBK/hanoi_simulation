@@ -150,11 +150,14 @@ impl Bundle {
             if c.links.iter().chain(&c.low_links).any(|&l| l >= m) {
                 return Err(format!("catchment {}: unknown link", c.id));
             }
-            if c.spill_to.is_some_and(|j| j as usize >= self.catchments.len()) {
+            if c.spill_to
+                .is_some_and(|j| j as usize >= self.catchments.len())
+            {
                 return Err(format!("catchment {}: unknown spill target", c.id));
             }
             if !(0.0..=1.0).contains(&c.water_share)
-                || c.runoff_coefficient.is_some_and(|k| !(0.0..=1.0).contains(&k))
+                || c.runoff_coefficient
+                    .is_some_and(|k| !(0.0..=1.0).contains(&k))
             {
                 return Err(format!("catchment {}: share out of range", c.id));
             }

@@ -444,7 +444,10 @@ mod tests {
         let green = catchment(Some(0.3), 0.0, None);
         let lake = catchment(Some(0.9), 0.4, None);
         assert!(b.inflow_share(&paved) > b.inflow_share(&green));
-        assert_eq!(b.inflow_share(&catchment(None, 0.0, None)), p.get("flood.runoff_coefficient"));
+        assert_eq!(
+            b.inflow_share(&catchment(None, 0.0, None)),
+            p.get("flood.runoff_coefficient")
+        );
         assert!(b.storage_mm(&lake) > b.storage_mm(&paved));
         let cs = vec![paved, green, lake];
         let mut st = BucketState::new(3);
@@ -460,7 +463,10 @@ mod tests {
         let mut p = Params::default();
         p.set("flood.drainage_mm_h", 0.0).unwrap();
         let b = BucketParams::new(&p);
-        let cs = vec![catchment(Some(1.0), 0.0, Some(1)), catchment(Some(1.0), 0.0, None)];
+        let cs = vec![
+            catchment(Some(1.0), 0.0, Some(1)),
+            catchment(Some(1.0), 0.0, None),
+        ];
         let mut st = BucketState::new(2);
         st.stored = vec![b.storage_mm(&cs[0]), b.storage_mm(&cs[1])];
         st.ponded = vec![100.0, 0.0];

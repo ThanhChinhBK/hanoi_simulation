@@ -125,9 +125,12 @@ impl Flood {
             .collect::<Result<Vec<_>, String>>()
             .map_err(err)?;
         let rain = RainProfile::new(pts).map_err(err)?;
-        let model: FloodModel = serde_json::from_value(serde_json::Value::String(model.into()))
-            .map_err(err)?;
-        let (t0, t1) = (parse_time(start).map_err(err)?, parse_time(end).map_err(err)?);
+        let model: FloodModel =
+            serde_json::from_value(serde_json::Value::String(model.into())).map_err(err)?;
+        let (t0, t1) = (
+            parse_time(start).map_err(err)?,
+            parse_time(end).map_err(err)?,
+        );
         let fl = py.detach(|| flood::simulate(&self.city, &p, &rain, model, t0, t1));
         serde_json::to_string(&fl).map_err(err)
     }
