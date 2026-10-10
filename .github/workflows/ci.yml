@@ -16,8 +16,23 @@ jobs:
     defaults: { run: { working-directory: web } }
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: wasm32-unknown-unknown }
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with: { tool: wasm-pack }
+      # the worker imports the generated engine-wasm/pkg (not committed)
+      - run: wasm-pack build --target web --release --out-dir pkg
+        working-directory: engine-wasm
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm test
+  pipeline:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: pipeline } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run pytest -q
