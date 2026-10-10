@@ -19,6 +19,10 @@ pub struct BNode {
     pub lat: f64,
     #[serde(default)]
     pub elev_m: f64,
+    /// How far the node sits below the mean ground within ~500 m (m; DEM lowness).
+    /// `None` in older bundles: ranking falls back to elevation.
+    #[serde(default)]
+    pub low_m: Option<f64>,
     #[serde(default)]
     pub signal: bool,
 }
@@ -82,6 +86,19 @@ pub struct BCatchment {
     pub area_m2: f64,
     pub links: Vec<u32>,
     pub low_links: Vec<u32>,
+    /// Land runoff coefficient from land cover; `None` = global parameter.
+    #[serde(default)]
+    pub runoff_coefficient: Option<f64>,
+    /// Share of the area that is open water (lakes, ponds): rain there fills lake
+    /// storage instead of running off.
+    #[serde(default)]
+    pub water_share: f64,
+    /// Mean ground elevation (m), for display and spill direction.
+    #[serde(default)]
+    pub ground_elev_m: Option<f64>,
+    /// Index of the lower neighbouring catchment where excess ponded water overflows.
+    #[serde(default)]
+    pub spill_to: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -132,6 +149,14 @@ impl Bundle {
         for c in &self.catchments {
             if c.links.iter().chain(&c.low_links).any(|&l| l >= m) {
                 return Err(format!("catchment {}: unknown link", c.id));
+            }
+            if c.spill_to.is_some_and(|j| j as usize >= self.catchments.len()) {
+                return Err(format!("catchment {}: unknown spill target", c.id));
+            }
+            if !(0.0..=1.0).contains(&c.water_share)
+                || c.runoff_coefficient.is_some_and(|k| !(0.0..=1.0).contains(&k))
+            {
+                return Err(format!("catchment {}: share out of range", c.id));
             }
         }
         Ok(())

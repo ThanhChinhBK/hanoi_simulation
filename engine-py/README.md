@@ -25,5 +25,17 @@ cal = Engine.load("../data/bundles/hanoi-inner.json",
                   params={"flood.drainage_mm_h": 30}, iterations=50)
 ```
 
+Flood layer only (milliseconds per run, for calibration sweeps):
+
+```python
+from hanoi_engine import Flood
+fl = Flood.load("../data/bundles/hanoi-inner.json")
+peak = fl.peak_depth_cm([("07:00", 20), ("09:00", 75), ("11:00", 0)], "bucket",
+                        params={"flood.drainage_mm_h": 14})   # {link: cm}
+```
+
+`calibration/flood_2025_09_30.py` sweeps the bucket model against the 30/9/2025 flood
+points (writes `data/out/flood_calibration.json`).
+
 `Run` exposes `summary`, `link_tt_ms` / `link_count` (n_links × n_bins numpy arrays),
 `free_flow_ms`, `delay_veh_h`, and the raw dict (`run.raw`, same as the CLI JSON).

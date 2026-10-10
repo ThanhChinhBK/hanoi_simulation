@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use hanoi_engine::{Bundle, Engine as Core, Params, RunOutput, Scenario};
+use hanoi_engine::flood::{self, FloodModel, RainProfile};
+use hanoi_engine::scenario::parse_time;
+use hanoi_engine::{Bundle, City, Engine as Core, Params, RunOutput, Scenario};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -87,9 +89,54 @@ impl Engine {
     }
 }
 
+/// Flood layer only (no traffic): fast enough for calibration sweeps.
+#[pyclass(module = "hanoi_engine._native", frozen)]
+struct Flood {
+    city: City,
+}
+
+#[pymethods]
+impl Flood {
+    #[new]
+    fn new(bundle_json: &str) -> PyResult<Self> {
+        let bundle = Arc::new(Bundle::from_json(bundle_json).map_err(err)?);
+        let city = City::build(bundle, &Params::default(), &[]).map_err(err)?;
+        Ok(Flood { city })
+    }
+
+    /// `profile`: [("HH:MM", mm/h)], `model`: "hotspots" | "bucket" | "none".
+    /// Returns the flood series as JSON: {start_ms, step_ms, n_steps, depth_cm: {link: [cm]}}.
+    #[pyo3(signature = (profile, model, start, end, params=None))]
+    fn run_json(
+        &self,
+        py: Python<'_>,
+        profile: Vec<(String, f64)>,
+        model: &str,
+        start: &str,
+        end: &str,
+        params: Option<BTreeMap<String, f64>>,
+    ) -> PyResult<String> {
+        let p = Params::default()
+            .with_overrides(&params.unwrap_or_default())
+            .map_err(err)?;
+        let pts = profile
+            .iter()
+            .map(|(t, v)| Ok((parse_time(t)?, *v)))
+            .collect::<Result<Vec<_>, String>>()
+            .map_err(err)?;
+        let rain = RainProfile::new(pts).map_err(err)?;
+        let model: FloodModel = serde_json::from_value(serde_json::Value::String(model.into()))
+            .map_err(err)?;
+        let (t0, t1) = (parse_time(start).map_err(err)?, parse_time(end).map_err(err)?);
+        let fl = py.detach(|| flood::simulate(&self.city, &p, &rain, model, t0, t1));
+        serde_json::to_string(&fl).map_err(err)
+    }
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Engine>()?;
+    m.add_class::<Flood>()?;
     m.add_function(wrap_pyfunction!(default_params_json, m)?)?;
     Ok(())
 }

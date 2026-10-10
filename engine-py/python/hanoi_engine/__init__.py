@@ -21,12 +21,39 @@ import numpy as np
 
 from . import _native
 
-__all__ = ["Engine", "Run", "default_params"]
+__all__ = ["Engine", "Flood", "Run", "default_params"]
 
 
 def default_params() -> dict[str, dict[str, Any]]:
     """Parameter registry: key -> {value, default, unit, min, max, category, source, confidence, description}."""
     return json.loads(_native.default_params_json())["params"]
+
+
+class Flood:
+    """Flood layer only (no traffic), for calibration.
+
+        fl = Flood.load("data/bundles/hanoi-inner.json")
+        peak = fl.peak_depth_cm([("07:00", 20), ("09:00", 75), ("11:00", 0)], "bucket",
+                                params={"flood.drainage_mm_h": 30})
+    """
+
+    def __init__(self, bundle_json: str):
+        self._inner = _native.Flood(bundle_json)
+
+    @classmethod
+    def load(cls, bundle: str | Path) -> "Flood":
+        return cls(Path(bundle).read_text(encoding="utf-8"))
+
+    def run(self, profile, model: str = "bucket", start: str = "05:00", end: str = "14:00",
+            params: dict[str, float] | None = None) -> dict[str, Any]:
+        prof = [(t, float(v)) for t, v in profile]
+        return json.loads(self._inner.run_json(prof, model, start, end, params))
+
+    def peak_depth_cm(self, profile, model: str = "bucket", start: str = "05:00", end: str = "14:00",
+                      params: dict[str, float] | None = None) -> dict[int, float]:
+        """Maximum depth (cm) per flooded link over the window."""
+        out = self.run(profile, model, start, end, params)
+        return {int(k): max(v) for k, v in out["depth_cm"].items()}
 
 
 @dataclass

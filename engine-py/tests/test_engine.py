@@ -64,3 +64,24 @@ def test_identical_to_cli(engine, name):
     ref = json.loads(cli.read_text())
     assert out.summary == ref["summary"]
     assert out.raw["link_tt_ms"] == ref["link_tt_ms"]
+
+
+def _flood_bundle():
+    nodes = [{"lon": 105.80 + 0.001 * i, "lat": 21.0, "elev_m": 10.0 - i, "low_m": float(i)} for i in range(4)]
+    links = [{"from": i, "to": i + 1, "length_m": 100.0, "road_class": "residential"} for i in range(3)]
+    return {
+        "version": 1, "name": "t", "bbox": [105.79, 20.99, 105.81, 21.01], "nodes": nodes, "links": links,
+        "catchments": [{"id": "c", "area_m2": 1e6, "links": [0, 1, 2], "low_links": [0, 1, 2],
+                        "runoff_coefficient": 0.9, "water_share": 0.0}],
+    }
+
+
+def test_flood_only_binding():
+    from hanoi_engine import Flood
+
+    fl = Flood(json.dumps(_flood_bundle()))
+    storm = [("07:00", 60.0), ("08:00", 0.0)]  # stays below the depth cap
+    peak = fl.peak_depth_cm(storm, "bucket", "06:00", "10:00", {"flood.low_link_share": 1.0})
+    assert peak and max(peak, key=peak.get) == 2  # deepest on the lowest link (low_m)
+    assert fl.peak_depth_cm(storm, "bucket", "06:00", "10:00", {"flood.drainage_mm_h": 200.0}) == {}
+    assert fl.peak_depth_cm([("07:00", 2.0)], "bucket", "06:00", "10:00") == {}

@@ -11,7 +11,7 @@ import numpy as np
 import requests
 
 from . import config
-from .geo import dist_m, grid_index, to_xy
+from .geo import M_PER_DEG_LAT, M_PER_DEG_LON, dist_m, grid_index, to_xy
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ def map_hotspots(nodes: list[dict], links: list[dict], csv_path=None) -> tuple[l
             status = "mapped" if ids else "streets not found / do not meet in OSM"
         else:
             ids = _street_low_point_links(nodes, links, street_links(streets[0]))
-            status = "mapped (lowest DEM point of street)" if ids else "street not found in OSM"
+            status = "mapped (lowest point of street, DEM lowness)" if ids else "street not found in OSM"
         report.append({"id": int(r["id"]), "label": r["label"], "status": status, "links": len(ids)})
         if ids:
             ids = [i for i in ids if not links[i]["bridge"]]
@@ -125,7 +125,7 @@ def _street_low_point_links(nodes, links, ids: list[int], radius_m: float = 200.
     if not ids:
         return []
     mids = {i: _mid(nodes, links[i]) for i in ids}
-    low = min(ids, key=lambda i: (mids[i][2], i))
+    low = min(ids, key=lambda i: (-_link_low(nodes, links[i]), i))
     lon0, lat0, _ = mids[low]
     return [i for i in ids if dist_m(mids[i][0], mids[i][1], lon0, lat0) <= radius_m]
 
@@ -144,31 +144,76 @@ def _group_links(nodes, links, ids: list[int], radius_m: float) -> list[list[int
     return groups
 
 
-def build_catchments(bbox, nodes, links, low_share: float = 0.2) -> list[dict]:
-    """Square catchments (proxy; real drainage basins are not openly available). In each,
-    the lowest `low_share` of non-bridge links (by DEM) plus tunnels receive ponded water."""
+def _link_low(nodes, link) -> float:
+    """Lowness of a link (m below local mean ground); falls back to -elevation."""
+    a, b = nodes[link["from"]], nodes[link["to"]]
+    if "low_m" in a and "low_m" in b:
+        return max(a["low_m"], b["low_m"])
+    return -(a["elev_m"] + b["elev_m"]) / 2
+
+
+def _cell_bounds(ix: int, iy: int, bbox, size: float) -> tuple[float, float, float, float]:
+    x0, y0 = to_xy(bbox[0], bbox[1])
+    w, s = (x0 + ix * size) / M_PER_DEG_LON, (y0 + iy * size) / M_PER_DEG_LAT
+    return w, s, w + size / M_PER_DEG_LON, s + size / M_PER_DEG_LAT
+
+
+def build_catchments(bbox, nodes, links, dem=None, cover=None, low_share: float = 0.2) -> list[dict]:
+    """Square catchments (proxy; real drainage basins are not openly available).
+
+    - low_links: the `low_share` of non-bridge links sitting furthest below their
+      surroundings (DEM lowness), plus tunnels. Ponded water collects there.
+    - runoff_coefficient / water_share: from land cover (None/0 without it).
+    - ground_elev_m: mean DEM over the square; spill_to: the lowest 8-neighbour that is
+      lower, where ponded water overflows (surface flow between catchments).
+    """
     size = config.CATCHMENT_SIZE_M
     cells: dict[tuple[int, int], list[int]] = defaultdict(list)
     for i, l in enumerate(links):
         lon, lat, _ = _mid(nodes, l)
         cells[grid_index(lon, lat, bbox, size)].append(i)
     out = []
+    keys = []
     for (ix, iy), ids in sorted(cells.items()):
         ground = [i for i in ids if not links[i]["bridge"]]
         if not ground:
             continue
-        ground.sort(key=lambda i: (_mid(nodes, links[i])[2], i))
+        ground.sort(key=lambda i: (-_link_low(nodes, links[i]), i))
         n_low = max(1, int(round(len(ground) * low_share)))
         low = sorted(set(ground[:n_low]) | {i for i in ids if links[i]["tunnel"]})
         elev = [_mid(nodes, links[i])[2] for i in ground]
-        out.append({
+        bounds = _cell_bounds(ix, iy, bbox, size)
+        c = {
             "id": f"c-{ix}-{iy}",
             "area_m2": size * size,
             "links": sorted(ids),
             "low_links": low,
             "mean_elev_m": round(float(np.mean(elev)), 1),
-        })
-    log.info("catchments: %d", len(out))
+            "ground_elev_m": round(dem.mean_in(*bounds) if dem is not None else float(np.mean(elev)), 2),
+        }
+        if cover is not None:
+            from .terrain import cover_stats, window
+
+            coef, water = cover_stats(window(cover[0], cover[1], *bounds))
+            if coef is not None:
+                c["runoff_coefficient"] = coef
+            c["water_share"] = water
+        out.append(c)
+        keys.append((ix, iy))
+    index = {k: i for i, k in enumerate(keys)}
+    for i, (ix, iy) in enumerate(keys):
+        best = None
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                j = index.get((ix + dx, iy + dy))
+                if j is None or j == i:
+                    continue
+                if out[j]["ground_elev_m"] < out[i]["ground_elev_m"] and (
+                        best is None or out[j]["ground_elev_m"] < out[best]["ground_elev_m"]):
+                    best = j
+        if best is not None:
+            out[i]["spill_to"] = best
+    log.info("catchments: %d (%d spill to a neighbour)", len(out), sum("spill_to" in c for c in out))
     return out
 
 

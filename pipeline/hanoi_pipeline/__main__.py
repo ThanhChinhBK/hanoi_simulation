@@ -16,6 +16,7 @@ from . import config
 from .flood import build_catchments, map_hotspots, rain_presets
 from . import metro
 from .network import build_network
+from .terrain import Dem, load_worldcover
 from .zones import build_zones
 
 log = logging.getLogger("hanoi_pipeline")
@@ -24,10 +25,11 @@ BUNDLE_VERSION = 1
 
 
 def build(bbox=config.BBOX, name: str = "hanoi-inner") -> tuple[dict, dict]:
-    net = build_network(bbox)
+    dem = Dem.load(bbox)
+    net = build_network(bbox, dem)
     zones, pop_check = build_zones(bbox, net["nodes"], net["links"])
     hotspots, hotspot_report = map_hotspots(net["nodes"], net["links"])
-    catchments = build_catchments(bbox, net["nodes"], net["links"])
+    catchments = build_catchments(bbox, net["nodes"], net["links"], dem, load_worldcover(bbox))
     bundle = {
         "version": BUNDLE_VERSION,
         "name": name,
@@ -39,10 +41,11 @@ def build(bbox=config.BBOX, name: str = "hanoi-inner") -> tuple[dict, dict]:
         "zones": zones,
         "hotspots": hotspots,
         "catchments": catchments,
+        "dem_source": dem.source,
         "rain_presets": rain_presets(),
         "attributions": config.ATTRIBUTIONS,
     }
-    report = {"population_check": pop_check, "hotspots": hotspot_report}
+    report = {"population_check": pop_check, "hotspots": hotspot_report, "dem_source": dem.source}
     return bundle, report
 
 

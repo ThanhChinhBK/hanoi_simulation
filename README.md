@@ -22,7 +22,7 @@ CLI, Python and WASM give bit-identical results for the same inputs and seed.
 ## Quick start
 
 ```sh
-# 1. data (downloads OSM, WorldPop, DEM; ~minutes). Also writes data/bundles/metro.geojson
+# 1. data (downloads OSM, WorldPop, FABDEM tiles, WorldCover; ~minutes). Also writes data/bundles/metro.geojson
 #    (metro lines from OSM via Overpass, map display only; rerun alone: python -m hanoi_pipeline.metro)
 cd pipeline && uv run python -m hanoi_pipeline && cd ..
 # 2. baseline routes (offline equilibrium, ~4 min)
@@ -49,6 +49,9 @@ See `engine/README.md` for the model, `web/README.md` for the app.
 
 ## Data & licences
 
-OpenStreetMap (ODbL), WorldPop (CC BY 4.0), Copernicus GLO-30 DEM, flood points from
-Hanoi Sewerage and Drainage Co. via news reports. Attributions are shown in the app.
+OpenStreetMap (ODbL), WorldPop (CC BY 4.0), FABDEM V1-2 bare-earth DEM
+(**CC BY-NC-SA 4.0, non-commercial**; Copernicus GLO-30 is the fallback), ESA WorldCover
+2021 (CC BY 4.0), flood points from Hanoi Sewerage and Drainage Co. via news reports.
+Attributions are shown in the app. Because of FABDEM, derived bundles are for
+non-commercial use; rebuild with the Copernicus fallback for other uses.
 Code: MIT OR Apache-2.0.

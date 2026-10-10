@@ -39,6 +39,19 @@ COPERNICUS_DEM_URL = (
     "Copernicus_DSM_COG_10_{t}_DEM.tif"
 )
 
+# FABDEM V1-2 (Hawker et al. 2022): Copernicus GLO-30 with buildings and forests
+# removed. Distributed as 10x10 degree zips; tiles are range-read out of the zip.
+FABDEM_ZIP_URL = (
+    "https://data.bris.ac.uk/datasets/s5hqmjcdj8yo2ibzi9b4ew3sn/N20E100-N30E110_FABDEM_V1-2.zip"
+)
+FABDEM_TILES = ["N20E105", "N21E105"]
+DEM_MARGIN_DEG = 0.03  # DEM window margin so local means near the bbox edge are complete
+LOWNESS_WINDOW_M = 500.0  # best of 90-1000 m against the 30/9/2025 intersection flood points
+WORLDCOVER_URL = (
+    "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/"
+    "ESA_WorldCover_10m_2021_v200_{t}_Map.tif"
+)
+
 ZONE_SIZE_M = 200.0
 # Population cells are spread over minor-road nodes within this radius of the cell
 # centre (people live along ngõ); POIs attach to the nearest node within POI_SNAP_M.
@@ -78,8 +91,14 @@ ATTRIBUTIONS = [
      "url": "https://www.openstreetmap.org/copyright", "used_for": "road network, POIs, metro lines"},
     {"name": "WorldPop (2020 constrained, 100 m)", "license": "CC BY 4.0",
      "url": "https://www.worldpop.org", "used_for": "population grid"},
+    {"name": "FABDEM V1-2 (Hawker et al. 2022, University of Bristol / Fathom)",
+     "license": "CC BY-NC-SA 4.0 (non-commercial)",
+     "url": "https://doi.org/10.5523/bris.s5hqmjcdj8yo2ibzi9b4ew3sn",
+     "used_for": "bare-earth elevation, local low points"},
     {"name": "Copernicus GLO-30 DEM (ESA)", "license": "Copernicus DEM licence (free)",
-     "url": "https://spacedata.copernicus.eu", "used_for": "elevation (DSM, broad trends only)"},
+     "url": "https://spacedata.copernicus.eu", "used_for": "elevation fallback (DSM)"},
+    {"name": "ESA WorldCover 10 m 2021 v200", "license": "CC BY 4.0",
+     "url": "https://esa-worldcover.org", "used_for": "runoff coefficient and open water per catchment"},
     {"name": "Hanoi Sewerage and Drainage Co. via news (Tiền Phong, VOV Giao thông)",
      "license": "facts reported in press",
      "url": "https://tienphong.vn/danh-sach-65-diem-ung-ngap-tai-ha-noi-post1782650.tpo",

@@ -81,8 +81,22 @@ The baseline runs `replan.iterations` (50) offline; its routes ship as `routes.b
 **Rain & flood** (`flood.rs`): depth per link over time, computed before the traffic run.
 - `hotspots`: known flood points (mapped to links) rise above an intensity threshold and
   recede at a fixed rate.
-- `bucket`: per catchment, inflow `C × i × A`, drainage `Q`, depression storage `S`;
-  excess ponds on the catchment's lowest links (deepest on the lowest) and hotspots.
+- `bucket`: 1 km square catchments (real drainage basins are not open data). Per step:
+  inflow `(C·(1−w) + w) × i × A`, where `C` is the land runoff coefficient from ESA
+  WorldCover (× `flood.runoff_scale`) and `w` the open-water share; storage
+  `S = depression storage + w × lake usable depth` fills first; drains `Q` take ponded
+  water first, then empty storage; ponded water above `flood.spill_threshold_mm`
+  overflows to the lowest lower neighbour (DEM). Ponded water sits on the catchment's
+  links that lie furthest below the ground within ~500 m (FABDEM "lowness"), tunnels
+  first, and on reported hotspots (`flood.hotspot_depth_factor`).
+- Calibration (`engine-py/calibration/flood_2025_09_30.py`, 30/9/2025 storm, model
+  given no hotspot information): `Q = 14 mm/h` makes the number of predicted flood
+  spots at 13:00 match the reported count. Honest skill check: at that extent ~18% of
+  the 51 reported points have a flooded link within 150 m, the same as placing spots
+  at random; ranking by absolute elevation gives 12%. Within-catchment ranking of
+  reported intersections: lowness AUC 0.64, depression depth 0.54, elevation 0.31.
+  So open terrain data sets realistic flood *extent and timing*, not *where exactly*:
+  the reported hotspot list is what places water on known streets.
 - Depth → speed: capped by the Pregnolato et al. (2017) safe speed; capacity falls
   linearly to a stall factor at the motorbike stall depth; closed above a closure depth.
   Bridges never flood. Rain alone reduces speed/capacity network-wide.

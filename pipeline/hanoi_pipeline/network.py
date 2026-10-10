@@ -6,12 +6,11 @@ import logging
 
 import numpy as np
 import osmnx as ox
-import rasterio
 from shapely.geometry import LineString
 
 from . import config
-from .download import fetch
 from .geo import dist_m, to_xy
+from .terrain import Dem
 
 log = logging.getLogger(__name__)
 
@@ -55,31 +54,7 @@ def _name(v) -> str:
     return "" if v is None or (isinstance(v, float) and np.isnan(v)) else str(v)
 
 
-def dem_paths():
-    return [
-        fetch(config.COPERNICUS_DEM_URL.format(t=t), config.CACHE / "dem" / f"cop30_{t}.tif")
-        for t in config.COPERNICUS_DEM_TILES
-    ]
-
-
-def sample_elevation(lonlat: list[tuple[float, float]]) -> list[float]:
-    """Elevation (m) from Copernicus GLO-30. DSM: includes buildings; broad trends only."""
-    elev = np.full(len(lonlat), np.nan)
-    for path in dem_paths():
-        with rasterio.open(path) as src:
-            b = src.bounds
-            idx = [i for i, (x, y) in enumerate(lonlat) if b.left <= x < b.right and b.bottom <= y < b.top]
-            if not idx:
-                continue
-            vals = [v[0] for v in src.sample([lonlat[i] for i in idx])]
-            for i, v in zip(idx, vals):
-                if v > -100:
-                    elev[i] = float(v)
-    fill = float(np.nanmedian(elev)) if np.isfinite(elev).any() else 0.0
-    return [round(float(e), 1) if np.isfinite(e) else fill for e in elev]
-
-
-def build_network(bbox=config.BBOX) -> dict:
+def build_network(bbox=config.BBOX, dem: "Dem | None" = None) -> dict:
     ox.settings.cache_folder = str(config.CACHE / "osmnx")
     ox.settings.use_cache = True
     ox.settings.log_console = False
@@ -92,7 +67,9 @@ def build_network(bbox=config.BBOX) -> dict:
     osm_nodes = sorted(G.nodes)
     nid = {n: i for i, n in enumerate(osm_nodes)}
     lonlat = [(G.nodes[n]["x"], G.nodes[n]["y"]) for n in osm_nodes]
-    elev = sample_elevation(lonlat)
+    dem = dem or Dem.load(bbox)
+    elev = [round(dem.elev(x, y), 1) for x, y in lonlat]
+    low = [round(dem.lowness(x, y), 2) for x, y in lonlat]
 
     # Signals sit on real streets, never on ngõ: snap only to nodes touching a non-alley road.
     street_nodes = sorted({nid[n] for u, v, d in G.edges(data=True)
@@ -100,8 +77,8 @@ def build_network(bbox=config.BBOX) -> dict:
     signal_nodes = _snap_signals(bbox, lonlat, street_nodes)
 
     nodes = [
-        {"lon": round(x, 6), "lat": round(y, 6), "elev_m": e, "signal": i in signal_nodes}
-        for i, ((x, y), e) in enumerate(zip(lonlat, elev))
+        {"lon": round(x, 6), "lat": round(y, 6), "elev_m": e, "low_m": k, "signal": i in signal_nodes}
+        for i, ((x, y), e, k) in enumerate(zip(lonlat, elev, low))
     ]
 
     links = []

@@ -710,16 +710,53 @@ impl Default for Params {
             (0.1, 1.0),
             Flood,
             ("typical value for dense urban areas", Medium),
-            "Bucket model: share of rain that becomes runoff (C).",
+            "Bucket model: share of rain that becomes runoff (C) where the bundle has no land-cover value.",
+        );
+        p.add(
+            "flood.runoff_scale",
+            1.0,
+            "×",
+            (0.2, 1.5),
+            Flood,
+            a_low,
+            "Bucket model: multiplier on each catchment's land-cover runoff coefficient (calibration knob).",
+        );
+        p.add(
+            "flood.lake_usable_depth_mm",
+            300.0,
+            "mm",
+            (0.0, 2000.0),
+            Flood,
+            ("assumption: regulating lakes keep ~0.3 m of freeboard before the storm", Low),
+            "Bucket model: water-level rise lakes can absorb; storage = open-water share × this.",
+        );
+        p.add(
+            "flood.spill_threshold_mm",
+            5.0,
+            "mm",
+            (0.0, 200.0),
+            Flood,
+            a_low,
+            "Bucket model: ponded water (mm over the catchment) above which it overflows to the lower neighbour.",
+        );
+        p.add(
+            "flood.spill_rate_per_h",
+            1.0,
+            "1/h",
+            (0.0, 20.0),
+            Flood,
+            a_low,
+            "Bucket model: rate at which excess ponded water flows to the lower neighbouring catchment (0 = no spill).",
         );
         p.add(
             "flood.drainage_mm_h",
-            20.0,
+            14.0,
             "mm/h",
             (0.0, 200.0),
             Flood,
             (
-                "MUST be calibrated: the 310 mm/2 days design figure is a volume, not a rate",
+                "calibrated on 30/9/2025: predicted flood spots at 13:00 ≈ reported count \
+                 (engine-py/calibration/flood_2025_09_30.py); one event, no validation event yet",
                 Low,
             ),
             "Bucket model: effective drainage capacity (Q) per catchment, as mm/h over its area.",
@@ -743,7 +780,7 @@ impl Default for Params {
             "Bucket model: share of the catchment area where excess water ponds (sets depth).",
         );
         p.add("flood.low_link_share", 0.25, "share", (0.0, 1.0), Flood, a_low,
-            "Bucket model: share of each catchment's low-lying links (lowest 20% by DEM) where water ponds; deepest on the lowest.");
+            "Bucket model: share of each catchment's low-lying links (deepest in DEM depressions, then lowest) where water ponds; deepest first.");
         p.add("flood.hotspot_depth_factor", 1.5, "×", (0.0, 5.0), Flood, a_low,
             "Bucket model: reported hotspot links get this multiple of the catchment ponding depth.");
         p.add(
