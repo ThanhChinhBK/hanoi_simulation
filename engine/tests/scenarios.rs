@@ -33,19 +33,41 @@ fn bundle_json() -> Value {
     let mut links = Vec::new();
     let mut add = |a: usize, b: usize, class: &str, len: f64, name: String| {
         for (f, t) in [(a, b), (b, a)] {
-            links.push(json!({"from": f, "to": t, "length_m": len, "road_class": class,
-                              "lanes": if class == "primary" {2.0} else {1.0}, "name": name}));
+            links.push(
+                json!({"from": f, "to": t, "length_m": len, "road_class": class,
+                              "lanes": if class == "primary" {2.0} else {1.0}, "name": name}),
+            );
         }
     };
     for r in 0..N {
         for c in 0..N {
             if c + 1 < N {
-                let class = if r == MAIN_ROW { "primary" } else { "residential" };
-                add(node_id(r, c), node_id(r, c + 1), class, 325.0, format!("Row {r}"));
+                let class = if r == MAIN_ROW {
+                    "primary"
+                } else {
+                    "residential"
+                };
+                add(
+                    node_id(r, c),
+                    node_id(r, c + 1),
+                    class,
+                    325.0,
+                    format!("Row {r}"),
+                );
             }
             if r + 1 < N {
-                let class = if c == MAIN_COL { "primary" } else { "residential" };
-                add(node_id(r, c), node_id(r + 1, c), class, 335.0, format!("Col {c}"));
+                let class = if c == MAIN_COL {
+                    "primary"
+                } else {
+                    "residential"
+                };
+                add(
+                    node_id(r, c),
+                    node_id(r + 1, c),
+                    class,
+                    335.0,
+                    format!("Col {c}"),
+                );
             }
         }
     }
@@ -62,8 +84,12 @@ fn bundle_json() -> Value {
         .iter()
         .enumerate()
         .filter(|(_, l)| {
-            let (f, t) = (l["from"].as_u64().unwrap() as usize, l["to"].as_u64().unwrap() as usize);
-            l["road_class"] == "primary" && (f == node_id(MAIN_ROW, MAIN_COL) || t == node_id(MAIN_ROW, MAIN_COL))
+            let (f, t) = (
+                l["from"].as_u64().unwrap() as usize,
+                l["to"].as_u64().unwrap() as usize,
+            );
+            l["road_class"] == "primary"
+                && (f == node_id(MAIN_ROW, MAIN_COL) || t == node_id(MAIN_ROW, MAIN_COL))
         })
         .map(|(i, _)| i)
         .collect();
@@ -103,7 +129,11 @@ fn busiest_link(o: &RunOutput) -> usize {
 
 fn assert_conserved(o: &RunOutput) {
     let s = &o.summary;
-    assert_eq!(s.arrived + s.aborted + s.unfinished, s.trips_simulated, "{s:?}");
+    assert_eq!(
+        s.arrived + s.aborted + s.unfinished,
+        s.trips_simulated,
+        "{s:?}"
+    );
 }
 
 #[test]
@@ -122,7 +152,11 @@ fn baseline_is_plausible() {
 fn baseline_is_deterministic_and_routes_roundtrip() {
     let bundle = Arc::new(Bundle::from_json(&bundle_json().to_string()).unwrap());
     let e1 = Engine::new(bundle.clone(), None, Some(4), &mut |_, _| {}).unwrap();
-    assert_eq!(e1.baseline(), engine().baseline(), "same seed → identical baseline");
+    assert_eq!(
+        e1.baseline(),
+        engine().baseline(),
+        "same seed → identical baseline"
+    );
     let bin = e1.baseline_routes();
     let e2 = Engine::new(bundle, Some(&bin), Some(0), &mut |_, _| {}).unwrap();
     assert_eq!(e2.baseline().link_count, e1.baseline().link_count);
@@ -152,8 +186,10 @@ fn closure_keeps_vehicles_off_the_link() {
 fn incident_on_busy_link_adds_delay() {
     let b = engine().baseline();
     let l = busiest_link(b);
-    let o = run(json!({"events": [{"type": "incident", "link": l, "from": "06:30",
-                                   "to": "08:30", "capacity_factor": 0.1}]}));
+    let o = run(
+        json!({"events": [{"type": "incident", "link": l, "from": "06:30",
+                                   "to": "08:30", "capacity_factor": 0.1}]}),
+    );
     assert!(o.summary.total_delay_veh_h > b.summary.total_delay_veh_h);
     assert_conserved(&o);
 }
@@ -161,19 +197,27 @@ fn incident_on_busy_link_adds_delay() {
 #[test]
 fn storm_floods_hotspot_and_changes_behaviour() {
     let b = engine().baseline();
-    let o = run(json!({"events": [{"type": "rain", "flood_model": "hotspots", "profile": [
+    let o = run(
+        json!({"events": [{"type": "rain", "flood_model": "hotspots", "profile": [
         {"at": "06:00", "mm_per_hour": 20}, {"at": "06:30", "mm_per_hour": 90},
-        {"at": "08:00", "mm_per_hour": 10}]}]}));
+        {"at": "08:00", "mm_per_hour": 10}]}]}),
+    );
     let s = &o.summary;
     assert!(s.flooded_links_max > 0);
     assert!(s.trips_cancelled > 0 && s.trips_delayed > 0, "{s:?}");
-    assert!(o.flood.depth_cm.values().any(|v| v.iter().any(|&d| d > 10.0)));
+    assert!(o
+        .flood
+        .depth_cm
+        .values()
+        .any(|v| v.iter().any(|&d| d > 10.0)));
     assert!(o.rain_mm_h.iter().any(|&r| r >= 90.0));
     assert!(s.mean_trip_min > b.summary.mean_trip_min);
     assert_conserved(&o);
 
-    let bucket = run(json!({"events": [{"type": "rain", "flood_model": "bucket", "profile": [
-        {"at": "06:00", "mm_per_hour": 100}, {"at": "07:30", "mm_per_hour": 0}]}]}));
+    let bucket = run(
+        json!({"events": [{"type": "rain", "flood_model": "bucket", "profile": [
+        {"at": "06:00", "mm_per_hour": 100}, {"at": "07:30", "mm_per_hour": 0}]}]}),
+    );
     assert!(bucket.summary.flooded_links_max > 0);
 }
 
@@ -181,16 +225,20 @@ fn storm_floods_hotspot_and_changes_behaviour() {
 fn signal_retiming_changes_flows() {
     let b = engine().baseline();
     let node = MAIN_ROW * N + MAIN_COL;
-    let o = run(json!({"events": [{"type": "signal", "node": node, "cycle_s": 90,
-        "green_split": {"north_south": 0.2, "east_west": 0.8}}]}));
+    let o = run(
+        json!({"events": [{"type": "signal", "node": node, "cycle_s": 90,
+        "green_split": {"north_south": 0.2, "east_west": 0.8}}]}),
+    );
     assert_ne!(o.link_count, b.link_count);
     assert_conserved(&o);
 }
 
 #[test]
 fn big_event_adds_trips() {
-    let o = run(json!({"events": [{"type": "event", "destination": [LAT0 + 0.009, LON0 + 0.009],
-        "extra_trips": 20000, "arrive_between": ["07:30", "08:30"]}]}));
+    let o = run(
+        json!({"events": [{"type": "event", "destination": [LAT0 + 0.009, LON0 + 0.009],
+        "extra_trips": 20000, "arrive_between": ["07:30", "08:30"]}]}),
+    );
     assert!(o.summary.event_trips > 100, "{:?}", o.summary);
     assert!(o.summary.trips_planned > engine().baseline().summary.trips_planned);
     assert_conserved(&o);
@@ -272,12 +320,70 @@ fn trips_use_zone_access_nodes() {
     let p = Params::default();
     let city = City::build(bundle, &p, &[]).unwrap();
     let plans = demandgen::generate(&city, &p, 7);
-    let count = |f: &dyn Fn(&demandgen::Plan) -> usize, n: usize| plans.iter().filter(|t| f(t) == n).count();
-    let (o, d) = (|t: &demandgen::Plan| t.origin.idx(), |t: &demandgen::Plan| t.dest.idx());
+    let count = |f: &dyn Fn(&demandgen::Plan) -> usize, n: usize| {
+        plans.iter().filter(|t| f(t) == n).count()
+    };
+    let (o, d) = (
+        |t: &demandgen::Plan| t.origin.idx(),
+        |t: &demandgen::Plan| t.dest.idx(),
+    );
     // zone 0's centre node is no longer an access point
     assert_eq!(count(&o, 0) + count(&d, 0), 0);
     // node 1 now carries zone 0's residents on top of its own zone's
-    assert!(count(&o, 1) as f64 > 1.6 * count(&o, 2) as f64, "{} vs {}", count(&o, 1), count(&o, 2));
+    assert!(
+        count(&o, 1) as f64 > 1.6 * count(&o, 2) as f64,
+        "{} vs {}",
+        count(&o, 1),
+        count(&o, 2)
+    );
     // node 7 (r1 c0) attracts zone 0's visitors on top of its own; node 8 (r1 c1) is its twin
-    assert!(count(&d, 7) > count(&d, 8), "{} vs {}", count(&d, 7), count(&d, 8));
+    assert!(
+        count(&d, 7) > count(&d, 8),
+        "{} vs {}",
+        count(&d, 7),
+        count(&d, 8)
+    );
+}
+
+/// Local-access estimate: zero on main roads, positive on the residential streets
+/// that connect homes to them, and the volume grows towards the main road.
+#[test]
+fn local_access_estimate_on_small_streets() {
+    use hanoi_engine::{City, Params};
+    let bundle = Arc::new(Bundle::from_json(&bundle_json().to_string()).unwrap());
+    let p = Params::default();
+    let city = City::build(bundle, &p, &[]).unwrap();
+    let vol = hanoi_engine::access::local_access_volume(&city, &p);
+    assert_eq!(vol.len(), city.net.links().len());
+    let link = |a: usize, b: usize| {
+        city.net
+            .links()
+            .iter()
+            .position(|l| l.from.idx() == a && l.to.idx() == b)
+            .unwrap()
+    };
+    for (i, m) in city.meta.iter().enumerate() {
+        if m.road_class == "primary" {
+            assert_eq!(vol[i], 0.0);
+        }
+    }
+    // row 0, columns 0→1→2→3 is the shortest way out to the main column 3 (975 m vs
+    // 1005 m down to the main row): outbound volume accumulates towards the main road,
+    // and the opposite direction carries the inbound trips home.
+    let out: Vec<f32> = (0..3)
+        .map(|c| vol[link(node_id(0, c), node_id(0, c + 1))])
+        .collect();
+    let inb: Vec<f32> = (0..3)
+        .map(|c| vol[link(node_id(0, c + 1), node_id(0, c))])
+        .collect();
+    assert!(
+        out[0] > 0.0 && out[1] > out[0] && out[2] > out[1],
+        "{out:?}"
+    );
+    assert!(
+        inb[0] > 0.0 && inb[1] > inb[0] && inb[2] > inb[1],
+        "{inb:?}"
+    );
+    // and the run output carries it for the web
+    assert_eq!(engine().baseline().access_volume, vol);
 }

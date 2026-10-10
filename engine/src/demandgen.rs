@@ -78,9 +78,7 @@ pub fn attraction(city: &City, p: &Params) -> Vec<f64> {
         .map(|z| {
             z.poi
                 .iter()
-                .map(|(k, v)| {
-                    p.param(&format!("attraction.{k}")).map_or(0.0, |q| q.value) * v
-                })
+                .map(|(k, v)| p.param(&format!("attraction.{k}")).map_or(0.0, |q| q.value) * v)
                 .sum::<f64>()
                 + z.extra_jobs / jobs_per
         })
@@ -101,7 +99,10 @@ pub fn attraction(city: &City, p: &Params) -> Vec<f64> {
 /// (vehicle type, vehicle trips per person trip) for each simulated mode.
 fn mode_rates(p: &Params) -> [(VehicleTypeId, f64); 3] {
     [
-        (MOTORBIKE, p.get("mode_share.motorbike") / p.get("occupancy.motorbike")),
+        (
+            MOTORBIKE,
+            p.get("mode_share.motorbike") / p.get("occupancy.motorbike"),
+        ),
         (CAR, p.get("mode_share.car") / p.get("occupancy.car")),
         (BUS, p.get("mode_share.bus") / p.get("occupancy.bus")),
     ]
@@ -109,10 +110,10 @@ fn mode_rates(p: &Params) -> [(VehicleTypeId, f64); 3] {
 
 /// Street nodes of a zone where trips can start/end, with cumulative weights for
 /// drawing origins (population) and destinations (attraction mixed with population).
-struct Access {
-    nodes: Vec<NodeId>,
-    origin_cum: Vec<f64>,
-    dest_cum: Vec<f64>,
+pub(crate) struct Access {
+    pub(crate) nodes: Vec<NodeId>,
+    pub(crate) origin_cum: Vec<f64>,
+    pub(crate) dest_cum: Vec<f64>,
 }
 
 impl Access {
@@ -127,7 +128,7 @@ impl Access {
     }
 }
 
-fn zone_access(city: &City, p: &Params) -> Vec<Access> {
+pub(crate) fn zone_access(city: &City, p: &Params) -> Vec<Access> {
     let m = p.get("attraction.population_mix");
     city.zones
         .iter()
@@ -138,7 +139,9 @@ fn zone_access(city: &City, p: &Params) -> Vec<Access> {
             if entries.is_empty() && ok(z.node) {
                 entries.push((z.node, 1.0, 1.0));
             }
-            let (sp, sa) = entries.iter().fold((0.0, 0.0), |s, e| (s.0 + e.1, s.1 + e.2));
+            let (sp, sa) = entries
+                .iter()
+                .fold((0.0, 0.0), |s, e| (s.0 + e.1, s.1 + e.2));
             let norm = |v: f64, t: f64, n: usize| if t > 0.0 { v / t } else { 1.0 / n as f64 };
             let n = entries.len();
             let (mut a, mut b) = (0.0, 0.0);
@@ -173,7 +176,11 @@ fn dest_node(acc: &Access, origin: NodeId, rng: &mut Rng) -> Option<NodeId> {
 pub fn generate(city: &City, p: &Params, seed: u64) -> Vec<Plan> {
     let f = p.get("sample_fraction");
     let beta = p.get("gravity.beta_per_km") / 1000.0;
-    let per_person = p.get("trip_rate.per_person_day") * p.get("trip_rate.am_window_share");
+    let ret_share = p.get("trip_rate.return_share");
+    let dwell_ms = p.get("trip_rate.return_dwell_min") * 60_000.0;
+    let window_end = hours(p.get("departure.end_h") + 1.0);
+    let per_person =
+        p.get("trip_rate.per_person_day") * p.get("trip_rate.am_window_share") / (1.0 + ret_share);
     let attr = attraction(city, p);
     let rates = mode_rates(p);
     let zones = &city.zones;
@@ -204,13 +211,26 @@ pub fn generate(city: &City, p: &Params, seed: u64) -> Vec<Plan> {
                 let Some(dest) = dest_node(&access[j], origin, &mut rng) else {
                     continue;
                 };
+                let depart_ms = departure(&mut rng, p);
                 plans.push(Plan {
                     origin,
                     dest,
-                    depart_ms: departure(&mut rng, p),
+                    depart_ms,
                     vtype: vt,
                     kind: TripKind::Local,
                 });
+                if rng.f64() < ret_share {
+                    let back = depart_ms + ((dwell_ms * (0.5 + rng.f64())) as TimeMs / 1000) * 1000;
+                    if back < window_end {
+                        plans.push(Plan {
+                            origin: dest,
+                            dest: origin,
+                            depart_ms: back,
+                            vtype: vt,
+                            kind: TripKind::Local,
+                        });
+                    }
+                }
             }
         }
     }
@@ -218,7 +238,13 @@ pub fn generate(city: &City, p: &Params, seed: u64) -> Vec<Plan> {
     plans
 }
 
-fn through_traffic(city: &City, p: &Params, seed: u64, attr: &[f64], access: &[Access]) -> Vec<Plan> {
+fn through_traffic(
+    city: &City,
+    p: &Params,
+    seed: u64,
+    attr: &[f64],
+    access: &[Access],
+) -> Vec<Plan> {
     let f = p.get("sample_fraction");
     let beta = p.get("gravity.beta_per_km") / 1000.0;
     let window_h = p.get("departure.end_h") - p.get("departure.start_h");
@@ -230,7 +256,9 @@ fn through_traffic(city: &City, p: &Params, seed: u64, attr: &[f64], access: &[A
         .filter(|e| city.origin_link[e.node as usize].is_some())
         .map(|e| {
             let c = e.road_class.trim_end_matches("_link");
-            let v = p.param(&format!("through.vehicles_per_h.{c}")).map_or(0.0, |q| q.value);
+            let v = p
+                .param(&format!("through.vehicles_per_h.{c}"))
+                .map_or(0.0, |q| q.value);
             (NodeId(e.node), v)
         })
         .collect();

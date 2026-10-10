@@ -1,5 +1,5 @@
 import type { RunData } from '../types';
-import { CLOSED, congestionColor, diffColor, NO_DATA, volumeWidth, type RGBA } from './colors';
+import { CLOSED, congestionColor, diffColor, ESTIMATE, NO_DATA, volumeWidth, type RGBA } from './colors';
 import type { Smoothing, ViewMode } from '../state';
 
 export interface LinkStyleInput {
@@ -10,6 +10,8 @@ export interface LinkStyleInput {
   smoothing: Smoothing;
   /** links shown as closed (removed or closed at this time) */
   closed: Set<number>;
+  /** fill small streets the sample misses with the local-access estimate */
+  localAccess?: boolean;
 }
 
 export interface LinkStyle {
@@ -52,18 +54,32 @@ export function computeLinkStyle(inp: LinkStyleInput): LinkStyle {
   const widths = new Float32Array(n);
   const [a, b] = binRange(inp.bin, inp.smoothing, current.meta.window.n_bins);
   const shown = mode === 'congestion-ref' && reference ? reference : current;
+  const est = localAccessFactor(shown, a, b, inp.localAccess);
   for (let l = 0; l < n; l++) {
     let c: RGBA;
     const s = aggTt(shown, l, a, b);
+    const e = est > 0 ? (shown.accessVolume[l] ?? 0) * est : 0;
     const ff = current.freeFlow[l] ?? shown.freeFlow[l];
     if (closed.has(l)) c = CLOSED;
     else if (mode === 'diff' && reference) {
       const r = aggTt(reference, l, a, b);
       c = diffColor(s.tt, r.tt, ff);
     } else if (mode === 'diff') c = NO_DATA;
-    else c = congestionColor(s.tt, ff);
+    else c = s.tt < 0 && e > 0 ? ESTIMATE : congestionColor(s.tt, ff);
     colors.set(c, l * 4);
-    widths[l] = closed.has(l) ? 3 : volumeWidth(s.count);
+    widths[l] = closed.has(l) ? 3 : volumeWidth(mode === 'diff' ? s.count : Math.max(s.count, e));
   }
   return { colors, widths };
+}
+
+/**
+ * Multiplier turning a link's full-population local-access volume into the same unit
+ * as `aggTt().count` (sampled vehicles per bin, averaged over bins a..b). 0 = off.
+ */
+export function localAccessFactor(run: RunData, a: number, b: number, on = true): number {
+  const share = run.meta.departure_share;
+  if (!on || !run.accessVolume?.length || !share?.length) return 0;
+  let s = 0;
+  for (let k = a; k <= b; k++) s += share[k] ?? 0;
+  return (run.meta.summary.sample_fraction * s) / (b - a + 1);
 }

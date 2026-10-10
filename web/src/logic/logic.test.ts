@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { decodeScenario, encodeScenario, scenarioCodeFromHash } from './scenarioUrl';
 import { barsToProfile, profileToBars, RAIN_BARS, rainTotalMm } from './rain';
-import { congestionColor, diffColor, diffValue, GREEN, NEUTRAL, NO_DATA, RED } from './colors';
+import { congestionColor, diffColor, diffValue, ESTIMATE, GREEN, NEUTRAL, NO_DATA, RED } from './colors';
+import { computeLinkStyle, localAccessFactor } from './linkStyle';
 import { buildTrips, type LngLat } from './trips';
 import { formatTime, parseTime } from './time';
-import type { Scenario } from '../types';
+import type { RunData, Scenario } from '../types';
 
 describe('scenario URL', () => {
   it('round-trips a scenario with unicode and overrides', async () => {
@@ -113,5 +114,39 @@ describe('trip builder', () => {
   it('uses the time origin', () => {
     const [t] = buildTrips([{ vehicle: 0, vehicle_type: 0, links: [[2, 19_800_000]], end_ms: 19_810_000 }], g, 19_800_000);
     expect(t.timestamps).toEqual([0, 10]);
+  });
+});
+
+describe('local-access estimate', () => {
+  // 2 links × 2 bins: link 0 simulated, link 1 a small street with no sampled vehicle
+  const run = {
+    meta: {
+      n_links: 2,
+      window: { start_ms: 0, bin_ms: 600_000, n_bins: 2 },
+      summary: { sample_fraction: 0.05 },
+      departure_share: [0.25, 0.75],
+    },
+    linkTt: new Float32Array([60_000, 60_000, -1, -1]),
+    linkCount: new Uint32Array([4, 4, 0, 0]),
+    freeFlow: new Float32Array([30_000, 30_000]),
+    accessVolume: new Float32Array([0, 400]),
+    traces: [],
+  } as unknown as RunData;
+
+  it('converts full-population volume to sampled vehicles per bin', () => {
+    expect(localAccessFactor(run, 1, 1)).toBeCloseTo(0.05 * 0.75);
+    expect(localAccessFactor(run, 0, 1)).toBeCloseTo(0.05 * 0.5);
+    expect(localAccessFactor(run, 0, 1, false)).toBe(0);
+  });
+
+  it('fills unsimulated small streets with the estimate colour, only in congestion views', () => {
+    const base = { current: run, bin: 1, smoothing: 0 as const, closed: new Set<number>() };
+    const on = computeLinkStyle({ ...base, mode: 'congestion', localAccess: true });
+    expect([...on.colors.subarray(4, 8)]).toEqual(ESTIMATE);
+    expect(on.widths[1]).toBeGreaterThan(1);
+    const off = computeLinkStyle({ ...base, mode: 'congestion', localAccess: false });
+    expect(off.widths[1]).toBe(1);
+    const diff = computeLinkStyle({ ...base, mode: 'diff', reference: run, localAccess: true });
+    expect([...diff.colors.subarray(4, 8)]).toEqual(NO_DATA);
   });
 });

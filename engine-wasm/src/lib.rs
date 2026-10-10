@@ -17,7 +17,11 @@ fn err(e: impl std::fmt::Display) -> JsError {
 fn progress_fn(cb: &Option<js_sys::Function>) -> impl FnMut(&str, f64) + '_ {
     move |stage: &str, f: f64| {
         if let Some(cb) = cb {
-            let _ = cb.call2(&JsValue::NULL, &JsValue::from_str(stage), &JsValue::from_f64(f));
+            let _ = cb.call2(
+                &JsValue::NULL,
+                &JsValue::from_str(stage),
+                &JsValue::from_f64(f),
+            );
         }
     }
 }
@@ -76,7 +80,11 @@ impl WasmEngine {
 
     /// Run a scenario (JSON). Check `meta().reference` to know whether to compare
     /// with `baseline()` or `control()`.
-    pub fn run(&self, scenario_json: &str, progress: Option<js_sys::Function>) -> Result<RunResult, JsError> {
+    pub fn run(
+        &self,
+        scenario_json: &str,
+        progress: Option<js_sys::Function>,
+    ) -> Result<RunResult, JsError> {
         let sc = Scenario::from_json(scenario_json).map_err(err)?;
         let mut p = progress_fn(&progress);
         Ok(RunResult(self.engine.run(&sc, &mut p).map_err(err)?))
@@ -96,6 +104,7 @@ struct Meta<'a> {
     delay_veh_h: &'a [f64],
     en_route: &'a [f64],
     rain_mm_h: &'a [f64],
+    departure_share: &'a [f32],
     flood: &'a hanoi_engine::flood::FloodSeries,
     added_links: &'a [hanoi_engine::scenario::AddedLink],
     removed_links: &'a [u32],
@@ -114,6 +123,7 @@ impl RunResult {
             delay_veh_h: &o.delay_veh_h,
             en_route: &o.en_route,
             rain_mm_h: &o.rain_mm_h,
+            departure_share: &o.departure_share,
             flood: &o.flood,
             added_links: &o.added_links,
             removed_links: &o.removed_links,
@@ -131,6 +141,12 @@ impl RunResult {
     #[wasm_bindgen(js_name = linkCount)]
     pub fn link_count(&self) -> Vec<u32> {
         self.0.link_count.clone()
+    }
+
+    /// Expected local-access vehicles per link over the window (full population estimate).
+    #[wasm_bindgen(js_name = accessVolume)]
+    pub fn access_volume(&self) -> Vec<f32> {
+        self.0.access_volume.clone()
     }
 
     #[wasm_bindgen(js_name = freeFlowMs)]

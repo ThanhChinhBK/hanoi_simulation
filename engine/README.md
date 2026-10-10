@@ -59,6 +59,18 @@ it and snaps POIs to their nearest node. Trips start at a home node drawn by pop
 and end at a node drawn by POI weight, so traffic appears on the small streets where
 people live (falls back to the zone's centre node when `access` is empty). Motorbikes, cars and
 buses are vehicle types with their own PCU (buses as road-occupying vehicles only).
+A share `trip_rate.return_share` (0.3) of trips get a return leg after a dwell of about
+`trip_rate.return_dwell_min` (school drop-offs, errands). Outbound trips are scaled by
+1/(1+share), so the trip total is unchanged.
+
+**Local-access estimate** (`access.rs`, display only): at a 5% sample most ngõ see fewer
+than one simulated vehicle per morning, so they look empty. `RunOutput.access_volume`
+estimates, for the *full* population, how many vehicles use each small street to get between
+homes/POIs and the nearest main road (shortest free-flow path to any non-minor road, both
+directions, including return legs). It is not simulated and has no congestion. Main roads
+are 0. The web scales it by `sample_fraction × departure_share[bin]` to match the
+sampled counts. To simulate the small streets instead, raise `sample_fraction`; each 2×
+roughly doubles runtime.
 
 **Replanning** (`replan.rs`, `scenario.rs`): each iteration simulates everyone, then a
 random `replan.share` (10%) re-route on the observed travel times. Travel times used for
@@ -107,7 +119,9 @@ target/release/hanoi-sim run --bundle $B --routes data/out/routes.bin \
 ```
 
 Inner Hanoi incl. alleys (42k nodes, 97k links of which 62k `service` = ngõ/ngách;
-5% sample = 35k trips): baseline 50 iterations ≈ 7 min; a sudden scenario ≈ 3–10 s,
+5% sample = 35k trips): baseline 50 iterations ≈ 4 min on a laptop (routing runs in
+parallel on native and stays deterministic: route groups are computed in parallel and
+applied in order; WASM is single-threaded); a sudden scenario ≈ 3–10 s,
 a structural one ≈ 1–4 min (native; WASM ≈ same). The web animates up to 8,000 traced
 vehicles (`MAX_TRACES` in `scenario.rs`).
 

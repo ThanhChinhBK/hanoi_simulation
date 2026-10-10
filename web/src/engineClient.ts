@@ -8,6 +8,7 @@ export function unwire(w: WireRun): RunData {
     linkTt: w.linkTt,
     linkCount: w.linkCount,
     freeFlow: w.freeFlow,
+    accessVolume: w.accessVolume,
     traces: JSON.parse(w.traces) as Trace[],
   };
 }

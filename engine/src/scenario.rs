@@ -183,6 +183,14 @@ pub struct RunOutput {
     pub rain_mm_h: Vec<f64>,
     pub flood: FloodSeries,
     pub traces: Vec<Trace>,
+    /// Expected local-access vehicles per link over the window, full population
+    /// (estimate for small streets the sample misses; see `access.rs`). Empty in
+    /// intermediate replanning iterations.
+    #[serde(default)]
+    pub access_volume: Vec<f32>,
+    /// Share of all departures in each bin (time profile for `access_volume`).
+    #[serde(default)]
+    pub departure_share: Vec<f32>,
     pub added_links: Vec<AddedLink>,
     pub removed_links: Vec<u32>,
 }
@@ -263,7 +271,9 @@ impl Engine {
         let stored = match routes.map(|b| decode_routes(&city, b)) {
             Some(Ok((h, r))) if h == hash && r.len() == plans.len() => Some(r),
             Some(Ok(_)) => {
-                warnings.push("baseline routes do not match this bundle/engine version; recomputed".into());
+                warnings.push(
+                    "baseline routes do not match this bundle/engine version; recomputed".into(),
+                );
                 None
             }
             Some(Err(e)) => {
@@ -280,7 +290,16 @@ impl Engine {
                 let all: Vec<usize> = (0..plans.len()).collect();
                 route_plans(&city, &plans, &all, &ff, &mut r, 0.0);
                 let it = iterations.unwrap_or(params.get("replan.iterations") as usize);
-                let (tt, conv) = replan(&city, &params, &plans, &mut r, ff, (it, it, 0.0), seed, progress);
+                let (tt, conv) = replan(
+                    &city,
+                    &params,
+                    &plans,
+                    &mut r,
+                    ff,
+                    (it, it, 0.0),
+                    seed,
+                    progress,
+                );
                 (r, tt, conv)
             }
         };
@@ -354,7 +373,12 @@ impl Engine {
         self.run_inner(sc, false, progress)
     }
 
-    fn run_inner(&self, sc: &Scenario, force_structural: bool, progress: Progress) -> Result<RunOutput, String> {
+    fn run_inner(
+        &self,
+        sc: &Scenario,
+        force_structural: bool,
+        progress: Progress,
+    ) -> Result<RunOutput, String> {
         let params = self
             .params
             .clone()
@@ -372,7 +396,9 @@ impl Engine {
         let dynamic = compile_dynamic(&city, sc)?;
         let mut plans = demandgen::generate(&city, &params, seed);
         for (k, &(node, persons, a, b)) in dynamic.events.iter().enumerate() {
-            plans.extend(event_trips(&city, &params, seed, k as u64, node, persons, a, b));
+            plans.extend(event_trips(
+                &city, &params, seed, k as u64, node, persons, a, b,
+            ));
         }
 
         // Reuse baseline routes for identical trips; route the rest on baseline times.
@@ -401,7 +427,12 @@ impl Engine {
         progress("routing", 0.0);
         let window = stats_window(&params);
         let base_tt = if window != stats_window(&self.params) {
-            Arc::new(TravelTimes::free_flow(&city.net, window.start_ms, window.bin_ms, window.n_bins))
+            Arc::new(TravelTimes::free_flow(
+                &city.net,
+                window.start_ms,
+                window.bin_ms,
+                window.n_bins,
+            ))
         } else if edits.is_empty() {
             self.base.tt.clone()
         } else {
@@ -416,7 +447,14 @@ impl Engine {
             let max_it = (params.get("replan.scenario_max_iterations") as usize).max(it);
             let tol = params.get("replan.convergence_tol");
             let (tt, conv) = replan(
-                &city, &params, &plans, &mut routes, (*expected).clone(), (it, max_it, tol), seed, progress,
+                &city,
+                &params,
+                &plans,
+                &mut routes,
+                (*expected).clone(),
+                (it, max_it, tol),
+                seed,
+                progress,
             );
             convergence = conv;
             if it > 0 {
@@ -515,7 +553,10 @@ fn compile_dynamic(city: &City, sc: &Scenario) -> Result<Dynamic, String> {
                 }
                 let (x, y) = city.project(destination[1], destination[0]);
                 let node = city.nearest_node(x, y).ok_or("event: no node nearby")?;
-                let (a, b) = (parse_time(&arrive_between[0])?, parse_time(&arrive_between[1])?);
+                let (a, b) = (
+                    parse_time(&arrive_between[0])?,
+                    parse_time(&arrive_between[1])?,
+                );
                 if b < a {
                     return Err("event: arrive_between must be ordered".into());
                 }
@@ -529,7 +570,10 @@ fn compile_dynamic(city: &City, sc: &Scenario) -> Result<Dynamic, String> {
 fn sim_config(p: &Params, n_trips: usize, traces: bool) -> SimConfig {
     SimConfig {
         sample_fraction: p.get("sample_fraction"),
-        storage_fraction: Some(p.get("sample_fraction").powf(p.get("storage_scale_exponent"))),
+        storage_fraction: Some(
+            p.get("sample_fraction")
+                .powf(p.get("storage_scale_exponent")),
+        ),
         stuck_threshold_ms: (p.get("stuck_threshold_s") * 1000.0) as TimeMs,
         record_log: false,
         stats: Some(stats_window(p)),
@@ -541,7 +585,13 @@ fn sim_config(p: &Params, n_trips: usize, traces: bool) -> SimConfig {
     }
 }
 
-fn build_demand(p: &Params, plans: &[Plan], routes: &Routes, active: &[bool], depart: &[TimeMs]) -> (Demand, Vec<usize>) {
+fn build_demand(
+    p: &Params,
+    plans: &[Plan],
+    routes: &Routes,
+    active: &[bool],
+    depart: &[TimeMs],
+) -> (Demand, Vec<usize>) {
     let mut trips = Vec::new();
     let mut idx = Vec::new();
     for (i, (pl, r)) in plans.iter().zip(routes).enumerate() {
@@ -588,8 +638,8 @@ fn replan(
     for it in 0..iterations {
         progress("replanning", it as f64 / iterations as f64);
         let (demand, idx) = build_demand(p, plans, routes, &active, &depart);
-        let mut sim = Sim::new(net.clone(), Arc::new(demand), sim_config(p, 0, false))
-            .expect("valid demand");
+        let mut sim =
+            Sim::new(net.clone(), Arc::new(demand), sim_config(p, 0, false)).expect("valid demand");
         setup_static(&mut sim, city, p, &BTreeMap::new()).expect("valid signals");
         sim.run();
         let arr = sim.arrival_times();
@@ -600,7 +650,11 @@ fn replan(
                 n += 1;
             }
         }
-        conv.push(if n > 0 { sum / n as f64 / 60_000.0 } else { 0.0 });
+        conv.push(if n > 0 {
+            sum / n as f64 / 60_000.0
+        } else {
+            0.0
+        });
         let observed = sim.stats().expect("stats").travel_times(&city.net);
         // Method of successive averages: damps route flip-flopping between iterations.
         let w = (1.0 / (it as f64 + 1.0)).max(w_min) as f32;
@@ -613,14 +667,26 @@ fn replan(
         }
         let mut rng = Rng::stream(seed, 5, it as u64);
         let which: Vec<usize> = (0..plans.len()).filter(|_| rng.f64() < share).collect();
-        route_plans(city, plans, &which, &tt, routes, p.get("replan.switch_gain"));
+        route_plans(
+            city,
+            plans,
+            &which,
+            &tt,
+            routes,
+            p.get("replan.switch_gain"),
+        );
     }
     progress("replanning", 1.0);
     (tt, conv)
 }
 
 /// Signals and removed roads (present in every run).
-fn setup_static(sim: &mut Sim, city: &City, p: &Params, overrides: &BTreeMap<NodeId, SignalPlan>) -> Result<(), String> {
+fn setup_static(
+    sim: &mut Sim,
+    city: &City,
+    p: &Params,
+    overrides: &BTreeMap<NodeId, SignalPlan>,
+) -> Result<(), String> {
     for (l, f) in signal_factors(city, p, overrides)? {
         sim.schedule_capacity_factor(0, l, FactorSource::Signal, f)
             .map_err(|e| e.to_string())?;
@@ -635,9 +701,17 @@ fn setup_static(sim: &mut Sim, city: &City, p: &Params, overrides: &BTreeMap<Nod
 }
 
 /// Rain behaviour: trips departing in heavy rain may be cancelled or postponed.
-fn rain_behaviour(p: &Params, plans: &[Plan], rain: &RainProfile, seed: u64) -> (Vec<bool>, Vec<TimeMs>, usize, usize) {
+fn rain_behaviour(
+    p: &Params,
+    plans: &[Plan],
+    rain: &RainProfile,
+    seed: u64,
+) -> (Vec<bool>, Vec<TimeMs>, usize, usize) {
     let thr = p.get("behaviour.cancel_rain_mm_h");
-    let (cancel, delay) = (p.get("behaviour.cancel_share"), p.get("behaviour.delay_share"));
+    let (cancel, delay) = (
+        p.get("behaviour.cancel_share"),
+        p.get("behaviour.delay_share"),
+    );
     let max_delay = (p.get("behaviour.max_delay_min") * 60_000.0) as TimeMs;
     let mut active = vec![true; plans.len()];
     let mut depart: Vec<TimeMs> = plans.iter().map(|p| p.depart_ms).collect();
@@ -703,8 +777,10 @@ fn execute(
     setup_static(&mut sim, city, p, &d.signals)?;
     let err = |e: crate::sim::SimError| e.to_string();
     for &(l, a, b, fac) in &d.incidents {
-        sim.schedule_capacity_factor(a, l, FactorSource::Incident, fac).map_err(err)?;
-        sim.schedule_capacity_factor(b, l, FactorSource::Incident, 1.0).map_err(err)?;
+        sim.schedule_capacity_factor(a, l, FactorSource::Incident, fac)
+            .map_err(err)?;
+        sim.schedule_capacity_factor(b, l, FactorSource::Incident, 1.0)
+            .map_err(err)?;
     }
     for &(l, a, b) in &d.closures {
         sim.schedule_closure(a, l, true).map_err(err)?;
@@ -724,8 +800,10 @@ fn execute(
             let rf = rain_factors(d.rain.intensity(t), p);
             if rf != last {
                 for l in 0..n_links as u32 {
-                    sim.schedule_speed_factor(t, LinkId(l), FactorSource::Rain, rf.0).map_err(err)?;
-                    sim.schedule_capacity_factor(t, LinkId(l), FactorSource::Rain, rf.1).map_err(err)?;
+                    sim.schedule_speed_factor(t, LinkId(l), FactorSource::Rain, rf.0)
+                        .map_err(err)?;
+                    sim.schedule_capacity_factor(t, LinkId(l), FactorSource::Rain, rf.1)
+                        .map_err(err)?;
                 }
                 last = rf;
             }
@@ -745,8 +823,10 @@ fn execute(
             }
             let t = fl.start_ms + s as TimeMs * fl.step_ms;
             let e = depth_effect(dep as f64, free_kmh, p);
-            sim.schedule_speed_factor(t, link, FactorSource::Flood, e.speed_factor).map_err(err)?;
-            sim.schedule_capacity_factor(t, link, FactorSource::Flood, e.capacity_factor).map_err(err)?;
+            sim.schedule_speed_factor(t, link, FactorSource::Flood, e.speed_factor)
+                .map_err(err)?;
+            sim.schedule_capacity_factor(t, link, FactorSource::Flood, e.capacity_factor)
+                .map_err(err)?;
             if e.closed != closed {
                 sim.schedule_closure(t, link, e.closed).map_err(err)?;
                 closed = e.closed;
@@ -762,7 +842,10 @@ fn execute(
     while !sim.is_finished() && t < horizon {
         t += chunk;
         sim.run_until(t);
-        progress("simulating", ((t - window.start_ms) as f64 / (end - window.start_ms) as f64).min(1.0));
+        progress(
+            "simulating",
+            ((t - window.start_ms) as f64 / (end - window.start_ms) as f64).min(1.0),
+        );
     }
 
     let counts = sim.counts();
@@ -784,7 +867,10 @@ fn execute(
         en_route.push(acc / f);
     }
     let rain_mm_h = (0..window.n_bins)
-        .map(|b| d.rain.intensity(window.start_ms + b as TimeMs * window.bin_ms))
+        .map(|b| {
+            d.rain
+                .intensity(window.start_ms + b as TimeMs * window.bin_ms)
+        })
         .collect();
     let base_links = city.bundle.links.len();
     let summary = Summary {
@@ -802,7 +888,11 @@ fn execute(
         stuck_pushes: counts.stuck_pushes,
         reroutes: counts.reroutes,
         total_delay_veh_h: stats.delay_s.iter().sum::<f64>() / 3600.0 / f,
-        mean_trip_min: if n > 0 { sum / n as f64 / 60_000.0 } else { 0.0 },
+        mean_trip_min: if n > 0 {
+            sum / n as f64 / 60_000.0
+        } else {
+            0.0
+        },
         iterations: 0,
         convergence_mean_trip_min: Vec::new(),
         flooded_links_max: flooded_max,
@@ -825,6 +915,19 @@ fn execute(
         rain_mm_h,
         flood: fl,
         traces: traces_out,
+        access_volume: if traces {
+            crate::access::local_access_volume(city, p)
+        } else {
+            Vec::new()
+        },
+        departure_share: {
+            let tot: u64 = stats.departures.iter().map(|&x| x as u64).sum();
+            stats
+                .departures
+                .iter()
+                .map(|&x| if tot > 0 { x as f32 / tot as f32 } else { 0.0 })
+                .collect()
+        },
         added_links: city
             .meta
             .iter()

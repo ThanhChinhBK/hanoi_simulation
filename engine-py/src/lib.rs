@@ -72,13 +72,17 @@ impl Engine {
     }
 
     fn control_json(&self, py: Python<'_>) -> PyResult<String> {
-        let o = py.detach(|| self.inner.control(&mut |_, _| {}).cloned()).map_err(err)?;
+        let o = py
+            .detach(|| self.inner.control(&mut |_, _| {}).cloned())
+            .map_err(err)?;
         to_json(&o)
     }
 
     fn run_json(&self, py: Python<'_>, scenario_json: &str) -> PyResult<String> {
         let sc = Scenario::from_json(scenario_json).map_err(err)?;
-        let o = py.detach(|| self.inner.run(&sc, &mut |_, _| {})).map_err(err)?;
+        let o = py
+            .detach(|| self.inner.run(&sc, &mut |_, _| {}))
+            .map_err(err)?;
         to_json(&o)
     }
 }

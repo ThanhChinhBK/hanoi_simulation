@@ -80,7 +80,13 @@ impl Stats {
         self.link_tt_sum_ms
             .iter()
             .zip(&self.link_count)
-            .map(|(&s, &c)| if c > 0 { (s / c as f64) as f32 } else { f32::NAN })
+            .map(|(&s, &c)| {
+                if c > 0 {
+                    (s / c as f64) as f32
+                } else {
+                    f32::NAN
+                }
+            })
             .collect()
     }
 

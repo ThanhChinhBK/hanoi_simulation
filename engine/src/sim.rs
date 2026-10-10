@@ -167,10 +167,16 @@ impl LinkState {
         self.used < self.storage
     }
     fn disruption_cap(&self) -> f64 {
-        DISRUPTION_SOURCES.iter().map(|&s| self.cap_factors[s]).product()
+        DISRUPTION_SOURCES
+            .iter()
+            .map(|&s| self.cap_factors[s])
+            .product()
     }
     fn disruption_speed(&self) -> f64 {
-        DISRUPTION_SOURCES.iter().map(|&s| self.speed_factors[s]).product()
+        DISRUPTION_SOURCES
+            .iter()
+            .map(|&s| self.speed_factors[s])
+            .product()
     }
 }
 
@@ -316,10 +322,7 @@ impl Sim {
                 end_ms: None,
             })
             .collect();
-        let stats = cfg
-            .stats
-            .clone()
-            .map(|c| Stats::new(c, net.links().len()));
+        let stats = cfg.stats.clone().map(|c| Stats::new(c, net.links().len()));
 
         let links = net
             .links()
@@ -385,7 +388,9 @@ impl Sim {
     /// Enable en-route rerouting (call before running).
     pub fn set_rerouting(&mut self, cfg: RerouteConfig) -> Result<(), SimError> {
         if !cfg.informed.is_empty() && cfg.informed.len() != self.vehicles.len() {
-            return Err(SimError("informed flags must match the number of trips".into()));
+            return Err(SimError(
+                "informed flags must match the number of trips".into(),
+            ));
         }
         for (v, &inf) in self.vehicles.iter_mut().zip(&cfg.informed) {
             v.informed = inf;
@@ -539,7 +544,11 @@ impl Sim {
             }
             Action::SetClosed { link, closed } => {
                 let ls = &mut self.links[link.idx()];
-                ls.closed = if closed { ls.closed + 1 } else { ls.closed.saturating_sub(1) };
+                ls.closed = if closed {
+                    ls.closed + 1
+                } else {
+                    ls.closed.saturating_sub(1)
+                };
                 self.bump_epoch_if_disrupted(link);
                 self.wake_both_ends(link);
             }
@@ -648,7 +657,10 @@ impl Sim {
     }
 
     fn is_disrupted(&self, l: LinkId) -> bool {
-        let thr = self.reroute.as_ref().map_or(0.0, |r| r.disruption_threshold);
+        let thr = self
+            .reroute
+            .as_ref()
+            .map_or(0.0, |r| r.disruption_threshold);
         let s = &self.links[l.idx()];
         s.closed > 0 || s.disruption_cap() < thr || s.disruption_speed() < thr
     }
@@ -662,7 +674,10 @@ impl Sim {
     /// First closed, not yet known link within the closure visibility distance beyond
     /// the vehicle's next link.
     fn closed_ahead(&self, v: VehicleId) -> Option<LinkId> {
-        let vis = self.reroute.as_ref().map_or(0.0, |r| r.closure_visibility_m);
+        let vis = self
+            .reroute
+            .as_ref()
+            .map_or(0.0, |r| r.closure_visibility_m);
         if !(vis > 0.0) {
             return None;
         }

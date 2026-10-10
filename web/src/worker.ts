@@ -19,6 +19,7 @@ function wire(r: RunResult): WireRun {
       linkTt: r.linkTtMs(),
       linkCount: r.linkCount(),
       freeFlow: r.freeFlowMs(),
+      accessVolume: r.accessVolume(),
       traces: r.traces(),
     };
   } finally {
@@ -26,7 +27,7 @@ function wire(r: RunResult): WireRun {
   }
 }
 
-const transfers = (w: WireRun): Transferable[] => [w.linkTt.buffer, w.linkCount.buffer, w.freeFlow.buffer];
+const transfers = (w: WireRun): Transferable[] => [w.linkTt.buffer, w.linkCount.buffer, w.freeFlow.buffer, w.accessVolume.buffer];
 
 function progress(id: number, prefix = '') {
   let last = 0;

@@ -61,7 +61,12 @@ fn conserved(s: &Sim) {
 #[test]
 fn closed_link_is_detoured_on_arrival() {
     let d = diamond();
-    let mut s = Sim::new(d.net.clone(), demand(trips(5, CAR, 1_000, &[d.sa, d.x, d.bt])), SimConfig::default()).unwrap();
+    let mut s = Sim::new(
+        d.net.clone(),
+        demand(trips(5, CAR, 1_000, &[d.sa, d.x, d.bt])),
+        SimConfig::default(),
+    )
+    .unwrap();
     s.set_rerouting(reroute_cfg(5, false)).unwrap();
     s.schedule_closure(0, d.x, true).unwrap();
     run_checked(&mut s);
@@ -81,7 +86,12 @@ fn closed_link_is_detoured_on_arrival() {
 #[test]
 fn no_alternative_aborts_trip() {
     let d = diamond();
-    let mut s = Sim::new(d.net.clone(), demand(trips(3, CAR, 0, &[d.sa, d.x, d.bt])), SimConfig::default()).unwrap();
+    let mut s = Sim::new(
+        d.net.clone(),
+        demand(trips(3, CAR, 0, &[d.sa, d.x, d.bt])),
+        SimConfig::default(),
+    )
+    .unwrap();
     s.set_rerouting(reroute_cfg(3, false)).unwrap();
     s.schedule_closure(0, d.x, true).unwrap();
     s.schedule_closure(0, d.cb, true).unwrap();
@@ -95,19 +105,33 @@ fn no_alternative_aborts_trip() {
 #[test]
 fn without_rerouting_vehicles_wait_for_closure_to_end() {
     let d = diamond();
-    let mut s = Sim::new(d.net.clone(), demand(trips(1, CAR, 0, &[d.sa, d.x, d.bt])), SimConfig::default()).unwrap();
+    let mut s = Sim::new(
+        d.net.clone(),
+        demand(trips(1, CAR, 0, &[d.sa, d.x, d.bt])),
+        SimConfig::default(),
+    )
+    .unwrap();
     s.schedule_closure(0, d.x, true).unwrap();
     s.schedule_closure(secs(100), d.x, false).unwrap();
     run_checked(&mut s);
     check_log(&s);
     assert_eq!(arrivals(s.log()), vec![secs(130)]);
-    assert_eq!(s.counts().stuck_pushes, 0, "waiting for a closure is not gridlock");
+    assert_eq!(
+        s.counts().stuck_pushes,
+        0,
+        "waiting for a closure is not gridlock"
+    );
 }
 
 #[test]
 fn closures_nest() {
     let d = diamond();
-    let mut s = Sim::new(d.net.clone(), demand(trips(1, CAR, 0, &[d.sa, d.x, d.bt])), SimConfig::default()).unwrap();
+    let mut s = Sim::new(
+        d.net.clone(),
+        demand(trips(1, CAR, 0, &[d.sa, d.x, d.bt])),
+        SimConfig::default(),
+    )
+    .unwrap();
     // Two overlapping closures: [0, 100 s) and [50 s, 200 s) → closed until 200 s.
     s.schedule_closure(0, d.x, true).unwrap();
     s.schedule_closure(secs(50), d.x, true).unwrap();
@@ -144,10 +168,16 @@ fn informed_driver_avoids_incident_before_reaching_it() {
     let net = Arc::new(b.build().unwrap());
     let route = [os, sa, x, bt];
     let run = |informed: bool| {
-        let mut s = Sim::new(net.clone(), demand(trips(1, CAR, secs(1), &route)), SimConfig::default()).unwrap();
+        let mut s = Sim::new(
+            net.clone(),
+            demand(trips(1, CAR, secs(1), &route)),
+            SimConfig::default(),
+        )
+        .unwrap();
         s.set_rerouting(reroute_cfg(1, informed)).unwrap();
         // X slows to 10% speed (200 s instead of 20 s) before the trip starts.
-        s.schedule_speed_factor(0, x, FactorSource::Incident, 0.1).unwrap();
+        s.schedule_speed_factor(0, x, FactorSource::Incident, 0.1)
+            .unwrap();
         run_checked(&mut s);
         check_log(&s);
         (s.vehicle_route(VehicleId(0)).to_vec(), arrivals(s.log())[0])
@@ -164,7 +194,9 @@ fn informed_driver_avoids_incident_before_reaching_it() {
 fn rerouting_is_deterministic() {
     let d = diamond();
     let mk = || {
-        let ts: Vec<Trip> = (0..50).flat_map(|k| trips(1, MOTO, k * 400, &[d.sa, d.x, d.bt])).collect();
+        let ts: Vec<Trip> = (0..50)
+            .flat_map(|k| trips(1, MOTO, k * 400, &[d.sa, d.x, d.bt]))
+            .collect();
         let mut s = Sim::new(d.net.clone(), demand(ts), SimConfig::default()).unwrap();
         s.set_rerouting(reroute_cfg(50, true)).unwrap();
         s.schedule_closure(secs(5), d.x, true).unwrap();
@@ -200,8 +232,17 @@ fn signposted_closure_avoids_trap() {
     let bt = b.add_link(spec(bb, t, 100.0, 10.0, 3600.0, None));
     let net = Arc::new(b.build().unwrap());
     let run = |vis: f64| {
-        let mut s = Sim::new(net.clone(), demand(trips(4, CAR, 0, &[sa, am, y, bt])), SimConfig::default()).unwrap();
-        s.set_rerouting(RerouteConfig { closure_visibility_m: vis, ..reroute_cfg(4, false) }).unwrap();
+        let mut s = Sim::new(
+            net.clone(),
+            demand(trips(4, CAR, 0, &[sa, am, y, bt])),
+            SimConfig::default(),
+        )
+        .unwrap();
+        s.set_rerouting(RerouteConfig {
+            closure_visibility_m: vis,
+            ..reroute_cfg(4, false)
+        })
+        .unwrap();
         s.schedule_closure(0, y, true).unwrap();
         run_checked(&mut s);
         check_log(&s);

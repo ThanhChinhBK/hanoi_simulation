@@ -1,5 +1,5 @@
 import { state, type Smoothing, type ViewMode } from '../state';
-import { CONGESTION_LEGEND, divergingColor, NO_DATA, CLOSED, toCss } from '../logic/colors';
+import { CONGESTION_LEGEND, divergingColor, NO_DATA, CLOSED, ESTIMATE, toCss } from '../logic/colors';
 import { VEHICLE_COLORS, VEHICLE_NAMES } from '../map/mapView';
 import { h } from './dom';
 
@@ -26,7 +26,7 @@ export function mapLegend(): HTMLElement {
     });
     return h('label.check', cb, ` ${label}`);
   };
-  layerToggles.append(toggle('vehicles', 'Vehicles'), toggle('flood', 'Flooding'), toggle('hotspots', 'Flood points'), toggle('nodes', 'Junctions'));
+  layerToggles.append(toggle('vehicles', 'Vehicles'), toggle('localAccess', 'Small streets (est.)'), toggle('flood', 'Flooding'), toggle('hotspots', 'Flood points'), toggle('nodes', 'Junctions'));
 
   const render = () => {
     const opts: { id: ViewMode; label: string; enabled: boolean }[] = [
@@ -67,6 +67,7 @@ export function mapLegend(): HTMLElement {
         h('div.legend-title', `Congestion${state.result ? (effective === 'congestion-ref' ? ' (reference)' : ' (scenario)') : ' (baseline)'}: travel time ÷ free flow`),
         h('div.gradient', { style: { background: `linear-gradient(90deg, ${CONGESTION_LEGEND.map(([, c]) => toCss(c)).join(',')})` } }),
         h('div.gradient-labels', ...CONGESTION_LEGEND.map(([x]) => h('span', `${x}×`))),
+        h('div.legend-row', h('i.sw', { style: { background: toCss(ESTIMATE) } }), 'small street, estimated (not simulated)'),
       );
     }
     scale.append(

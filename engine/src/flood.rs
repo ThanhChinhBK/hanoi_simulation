@@ -157,7 +157,10 @@ pub fn simulate(
                 p.get("flood.hotspot_threshold_mm_h"),
                 p.get("flood.underpass_threshold_mm_h"),
             );
-            let (rise, rec) = (p.get("flood.rise_cm_per_mm"), p.get("flood.recession_cm_per_h"));
+            let (rise, rec) = (
+                p.get("flood.rise_cm_per_mm"),
+                p.get("flood.recession_cm_per_h"),
+            );
             let mut d = vec![0.0f64; hotspots.len()];
             for s in 0..n_steps {
                 let i = rain.intensity(start_ms + s as TimeMs * step_ms);
@@ -201,7 +204,10 @@ pub fn simulate(
                     let mut ls = cm.low_links.clone();
                     ls.sort_by(|&a, &c| {
                         let key = |l: u32| !city.meta[l as usize].tunnel;
-                        key(a).cmp(&key(c)).then(elev(a).total_cmp(&elev(c))).then(a.cmp(&c))
+                        key(a)
+                            .cmp(&key(c))
+                            .then(elev(a).total_cmp(&elev(c)))
+                            .then(a.cmp(&c))
                     });
                     let keep = ((ls.len() as f64 * low_share).ceil() as usize).max(1);
                     let tunnels = ls.iter().filter(|&&l| city.meta[l as usize].tunnel).count();
@@ -209,7 +215,16 @@ pub fn simulate(
                     let n = ls.len() as f64;
                     ls.iter()
                         .enumerate()
-                        .map(|(k, &l)| (l, if n > 1.0 { 2.0 * (1.0 - (k as f64 + 0.5) / n) } else { 1.0 }))
+                        .map(|(k, &l)| {
+                            (
+                                l,
+                                if n > 1.0 {
+                                    2.0 * (1.0 - (k as f64 + 0.5) / n)
+                                } else {
+                                    1.0
+                                },
+                            )
+                        })
                         .collect()
                 })
                 .collect();

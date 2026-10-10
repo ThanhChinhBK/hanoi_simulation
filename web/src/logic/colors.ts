@@ -5,6 +5,8 @@ export const NEUTRAL: RGBA = [176, 182, 190, 200];
 export const RED: RGBA = [215, 48, 39, 255];
 export const NO_DATA: RGBA = [160, 166, 176, 90];
 export const CLOSED: RGBA = [60, 20, 90, 255];
+/** Small street with only the local-access estimate (not simulated): light green. */
+export const ESTIMATE: RGBA = [120, 130, 165, 170];
 export const ADDED: RGBA = [37, 99, 235, 255];
 
 /** Travel-time differences smaller than this (ms) count as "no change". */

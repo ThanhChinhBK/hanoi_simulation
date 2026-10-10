@@ -142,34 +142,76 @@ pub fn astar(
     }
     let vmax = net.max_free_speed_mps();
     let h = |n: NodeId| (net.node_dist_m(n, to) * 1000.0 / vmax) as TimeMs;
-    let mut g: std::collections::HashMap<NodeId, (TimeMs, Option<LinkId>)> =
-        std::collections::HashMap::new();
-    let mut heap = BinaryHeap::new();
-    g.insert(from, (t0, None));
-    heap.push(Reverse((t0 + h(from), t0, from)));
-    while let Some(Reverse((_, t, u))) = heap.pop() {
-        if t > g[&u].0 {
-            continue;
-        }
-        if u == to {
-            let mut rev = Vec::new();
-            let mut cur = to;
-            while let Some(l) = g[&cur].1 {
-                rev.push(l);
-                cur = net.link(l).from;
+    SCRATCH.with(|sc| {
+        let mut sc = sc.borrow_mut();
+        sc.reset(net.nodes().len());
+        let mut heap = BinaryHeap::new();
+        sc.set(from, t0, None);
+        heap.push(Reverse((t0 + h(from), t0, from)));
+        while let Some(Reverse((_, t, u))) = heap.pop() {
+            if t > sc.g(u) {
+                continue;
             }
-            rev.reverse();
-            return Some(rev);
-        }
-        for &l in &net.node(u).out_links {
-            let Some(c) = cost(l, t) else { continue };
-            let v = net.link(l).to;
-            let nt = t + c;
-            if g.get(&v).is_none_or(|&(old, _)| nt < old) {
-                g.insert(v, (nt, Some(l)));
-                heap.push(Reverse((nt + h(v), nt, v)));
+            if u == to {
+                let mut rev = Vec::new();
+                let mut cur = to;
+                while let Some(l) = sc.via[cur.idx()] {
+                    rev.push(l);
+                    cur = net.link(l).from;
+                }
+                rev.reverse();
+                return Some(rev);
             }
+            for &l in &net.node(u).out_links {
+                let Some(c) = cost(l, t) else { continue };
+                let v = net.link(l).to;
+                let nt = t + c;
+                if nt < sc.g(v) {
+                    sc.set(v, nt, Some(l));
+                    heap.push(Reverse((nt + h(v), nt, v)));
+                }
+            }
+        }
+        None
+    })
+}
+
+/// Per-thread A* state, reused across searches: an entry is valid only if its stamp
+/// equals the current search's generation (avoids clearing O(nodes) per search).
+#[derive(Default)]
+struct Scratch {
+    gen: u32,
+    stamp: Vec<u32>,
+    g: Vec<TimeMs>,
+    via: Vec<Option<LinkId>>,
+}
+
+impl Scratch {
+    fn reset(&mut self, n: usize) {
+        if self.stamp.len() != n || self.gen == u32::MAX {
+            *self = Scratch {
+                gen: 0,
+                stamp: vec![0; n],
+                g: vec![0; n],
+                via: vec![None; n],
+            };
+        }
+        self.gen += 1;
+    }
+    fn g(&self, n: NodeId) -> TimeMs {
+        if self.stamp[n.idx()] == self.gen {
+            self.g[n.idx()]
+        } else {
+            TimeMs::MAX
         }
     }
-    None
+    fn set(&mut self, n: NodeId, g: TimeMs, via: Option<LinkId>) {
+        self.stamp[n.idx()] = self.gen;
+        self.g[n.idx()] = g;
+        self.via[n.idx()] = via;
+    }
+}
+
+thread_local! {
+    static SCRATCH: std::cell::RefCell<Scratch> = std::cell::RefCell::new(Scratch::default());
 }

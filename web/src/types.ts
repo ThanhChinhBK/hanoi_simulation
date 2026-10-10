@@ -155,6 +155,8 @@ export interface RunMeta {
   delay_veh_h: number[];
   en_route: number[];
   rain_mm_h: number[];
+  /** share of all departures per bin (time profile of the local-access estimate) */
+  departure_share: number[];
   flood: FloodSeries;
   added_links: { id: number; from: number; to: number }[];
   removed_links: number[];
@@ -173,6 +175,8 @@ export interface RunData {
   linkTt: Float32Array;
   linkCount: Uint32Array;
   freeFlow: Float32Array;
+  /** expected local-access vehicles per link over the window, full population (estimate) */
+  accessVolume: Float32Array;
   traces: Trace[];
 }
 
@@ -187,6 +191,7 @@ export interface WireRun {
   linkTt: Float32Array;
   linkCount: Uint32Array;
   freeFlow: Float32Array;
+  accessVolume: Float32Array;
   traces: string;
 }
 

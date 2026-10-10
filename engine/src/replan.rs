@@ -74,13 +74,13 @@ pub fn route_plans(
             .or_default()
             .push(i);
     }
-    for ((_, _), idx) in groups {
+    let groups: Vec<Vec<usize>> = groups.into_values().collect();
+    // Each group is routed independently (pure), in parallel on native targets; the
+    // results are applied in group order, so the outcome is identical to a serial run.
+    let found = par_map(&groups, |idx| {
         let p0 = plans[idx[0]];
         let Some(first) = city.origin_link[p0.origin.idx()] else {
-            for i in idx {
-                routes[i] = None;
-            }
-            continue;
+            return idx.iter().map(|&i| (i, None)).collect::<Vec<_>>();
         };
         let make = |path: Option<Vec<LinkId>>| -> Option<Vec<LinkId>> {
             let path = path.filter(|p| !p.is_empty())?;
@@ -92,16 +92,66 @@ pub fn route_plans(
         if idx.len() >= TREE_MIN_GROUP {
             let t0 = idx.iter().map(|&i| plans[i].depart_ms).min().unwrap_or(0);
             let tr = tree(&city.net, p0.origin, t0, cost);
-            for i in idx {
-                set(i, make(tr.path_to(&city.net, plans[i].dest)), routes);
-            }
+            idx.iter()
+                .map(|&i| (i, make(tr.path_to(&city.net, plans[i].dest))))
+                .collect()
         } else {
-            for i in idx {
-                let p = &plans[i];
-                set(i, make(astar(&city.net, p.origin, p.dest, p.depart_ms, cost)), routes);
-            }
+            idx.iter()
+                .map(|&i| {
+                    let p = &plans[i];
+                    (
+                        i,
+                        make(astar(&city.net, p.origin, p.dest, p.depart_ms, cost)),
+                    )
+                })
+                .collect()
+        }
+    });
+    for group in found {
+        for (i, r) in group {
+            set(i, r, routes);
         }
     }
+}
+
+/// `items.map(f)` in order; spread over threads where available (not in WASM).
+fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .min(16);
+        if threads > 1 && items.len() > 64 {
+            let chunk = items.len().div_ceil(threads * 4);
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let parts: Vec<Vec<(usize, Vec<R>)>> = std::thread::scope(|sc| {
+                let hs: Vec<_> = (0..threads)
+                    .map(|_| {
+                        sc.spawn(|| {
+                            let mut mine = Vec::new();
+                            loop {
+                                let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let lo = k * chunk;
+                                if lo >= items.len() {
+                                    break;
+                                }
+                                let hi = (lo + chunk).min(items.len());
+                                mine.push((k, items[lo..hi].iter().map(&f).collect()));
+                            }
+                            mine
+                        })
+                    })
+                    .collect();
+                hs.into_iter()
+                    .map(|h| h.join().expect("routing thread panicked"))
+                    .collect()
+            });
+            let mut all: Vec<(usize, Vec<R>)> = parts.into_iter().flatten().collect();
+            all.sort_by_key(|(k, _)| *k);
+            return all.into_iter().flat_map(|(_, v)| v).collect();
+        }
+    }
+    items.iter().map(f).collect()
 }
 
 /// Is a stored route still valid in this city (links exist, contiguous, not removed,
@@ -113,7 +163,9 @@ pub fn route_valid(city: &City, plan: &Plan, route: &[LinkId]) -> bool {
         && route.iter().all(|l| l.idx() < n && !city.is_removed(*l))
         && net.link(route[0]).to == plan.origin
         && net.link(*route.last().unwrap()).to == plan.dest
-        && route.windows(2).all(|w| net.link(w[0]).to == net.link(w[1]).from)
+        && route
+            .windows(2)
+            .all(|w| net.link(w[0]).to == net.link(w[1]).from)
 }
 
 /// FNV-1a hash of the plans, to check that stored routes belong to this demand.
@@ -155,7 +207,10 @@ pub fn encode_routes(city: &City, hash: u64, routes: &Routes) -> Vec<u8> {
                 out.extend_from_slice(&((r.len() - 1) as u16).to_le_bytes());
                 for w in r.windows(2) {
                     let outs = &net.node(net.link(w[0]).to).out_links;
-                    let k = outs.iter().position(|&l| l == w[1]).expect("contiguous route");
+                    let k = outs
+                        .iter()
+                        .position(|&l| l == w[1])
+                        .expect("contiguous route");
                     out.push(u8::try_from(k).expect("out-degree < 256"));
                 }
             }

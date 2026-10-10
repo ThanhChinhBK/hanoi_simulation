@@ -220,7 +220,11 @@ const M_PER_DEG_LAT: f64 = 110_540.0;
 const M_PER_DEG_LON_EQ: f64 = 111_320.0;
 
 impl City {
-    pub fn build(bundle: Arc<Bundle>, params: &Params, edits: &[StructuralEdit]) -> Result<City, String> {
+    pub fn build(
+        bundle: Arc<Bundle>,
+        params: &Params,
+        edits: &[StructuralEdit],
+    ) -> Result<City, String> {
         let lon0 = (bundle.bbox[0] + bundle.bbox[2]) / 2.0;
         let lat0 = (bundle.bbox[1] + bundle.bbox[3]) / 2.0;
         let proj = |lon: f64, lat: f64| {
@@ -253,7 +257,11 @@ impl City {
                     population: z.population,
                     poi: z.poi.clone(),
                     extra_jobs: 0.0,
-                    access: z.access.iter().map(|&(n, a, b)| (NodeId(n), a, b)).collect(),
+                    access: z
+                        .access
+                        .iter()
+                        .map(|&(n, a, b)| (NodeId(n), a, b))
+                        .collect(),
                 }
             })
             .collect();
@@ -397,7 +405,10 @@ impl City {
                     .copied()
                     .filter(|l| !meta[l.idx()].removed)
                     .max_by(|a, b| {
-                        let (ca, cb) = (net.link(*a).flow_capacity_pcu_per_h, net.link(*b).flow_capacity_pcu_per_h);
+                        let (ca, cb) = (
+                            net.link(*a).flow_capacity_pcu_per_h,
+                            net.link(*b).flow_capacity_pcu_per_h,
+                        );
                         ca.total_cmp(&cb).then(b.cmp(a))
                     })
             })
@@ -483,7 +494,8 @@ fn nearest_node(xy: &[(f64, f64)], x: f64, y: f64) -> NodeId {
 fn add_access(z: &mut Zone, node: NodeId, pop: f64, attr: f64) {
     if z.access.is_empty() {
         let poi: f64 = z.poi.values().sum::<f64>() + 1e-9;
-        z.access.push((z.node, z.population.max(0.0) - pop.max(0.0) + 1e-9, poi));
+        z.access
+            .push((z.node, z.population.max(0.0) - pop.max(0.0) + 1e-9, poi));
     }
     match z.access.iter_mut().find(|a| a.0 == node) {
         Some(a) => {

@@ -70,12 +70,20 @@ fn load_engine(a: &HashMap<String, String>, routes: Option<Vec<u8>>) -> Result<E
     let mut params = Params::default();
     if let Some(sets) = a.get("set") {
         for kv in sets.split(',').filter(|s| !s.is_empty()) {
-            let (k, v) = kv.split_once('=').ok_or("--set expects key=value[,key=value]")?;
+            let (k, v) = kv
+                .split_once('=')
+                .ok_or("--set expects key=value[,key=value]")?;
             let v: f64 = v.parse().map_err(|_| format!("--set {k}: not a number"))?;
             params.set(k, v).map_err(|e| e.to_string())?;
         }
     }
-    let e = Engine::with_params(Arc::new(bundle), params, routes.as_deref(), iterations, &mut progress_printer())?;
+    let e = Engine::with_params(
+        Arc::new(bundle),
+        params,
+        routes.as_deref(),
+        iterations,
+        &mut progress_printer(),
+    )?;
     eprintln!("\nbaseline ready in {:.1}s", t0.elapsed().as_secs_f64());
     Ok(e)
 }

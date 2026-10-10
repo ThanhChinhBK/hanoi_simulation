@@ -55,7 +55,7 @@ export class AppState {
   speed = 60; // simulated seconds per real second
   view: ViewMode = 'congestion';
   smoothing: Smoothing = 0;
-  layers = { vehicles: true, flood: true, hotspots: true, nodes: true };
+  layers = { vehicles: true, localAccess: true, flood: true, hotspots: true, nodes: true };
   tool: Tool = { kind: 'select' };
   selection: Selection = {};
   run: RunStatus = { running: false, stage: '', fraction: 0 };

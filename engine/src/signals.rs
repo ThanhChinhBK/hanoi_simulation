@@ -53,7 +53,11 @@ pub fn default_plan(city: &City, params: &Params, n: NodeId) -> SignalPlan {
             Phase::EastWest => ew += cap,
         }
     }
-    let share = if ns + ew > 0.0 { (ns / (ns + ew)).clamp(0.3, 0.7) } else { 0.5 };
+    let share = if ns + ew > 0.0 {
+        (ns / (ns + ew)).clamp(0.3, 0.7)
+    } else {
+        0.5
+    };
     SignalPlan {
         cycle_s: params.get("signal.cycle_s"),
         green_split: GreenSplit {
@@ -78,14 +82,21 @@ pub fn signal_factors(
             None => continue,
         };
         if !(plan.cycle_s > lost) {
-            return Err(format!("signal at node {}: cycle must exceed lost time", n.id.0));
+            return Err(format!(
+                "signal at node {}: cycle must exceed lost time",
+                n.id.0
+            ));
         }
         let g = plan.green_split;
         let total = g.north_south + g.east_west;
         if !(g.north_south >= 0.0 && g.east_west >= 0.0 && total > 0.0) {
             return Err(format!("signal at node {}: invalid green split", n.id.0));
         }
-        let phases: Vec<Phase> = n.in_links.iter().map(|&l| approach_phase(city, l)).collect();
+        let phases: Vec<Phase> = n
+            .in_links
+            .iter()
+            .map(|&l| approach_phase(city, l))
+            .collect();
         let both = phases.contains(&Phase::NorthSouth) && phases.contains(&Phase::EastWest);
         let eff = (plan.cycle_s - lost) / plan.cycle_s;
         for (&l, ph) in n.in_links.iter().zip(phases) {

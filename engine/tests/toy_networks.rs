@@ -338,7 +338,10 @@ fn t11_short_link_chain_keeps_capacity() {
     check_log(&s);
     let arr = arrivals(s.log());
     let last = *arr.last().unwrap();
-    println!("last arrival {last} ms, stuck pushes {}", s.counts().stuck_pushes);
+    println!(
+        "last arrival {last} ms, stuck pushes {}",
+        s.counts().stuck_pushes
+    );
     assert!(last < secs(300), "last arrival {last}");
     assert_eq!(s.counts().stuck_pushes, 0);
 }

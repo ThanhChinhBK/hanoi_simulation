@@ -71,6 +71,8 @@ Every run says what it should be compared with (`meta.reference`):
 - If a link has traffic only in the scenario, it is compared with its free-flow time.
 - Closed and removed links are drawn in purple.
 - Width scales with volume.
+- Two-way roads are drawn as two lines, one per direction, offset to the right-hand side of travel (Vietnam drives on the right). Vehicles keep to the right too.
+- Small streets that the 5 % sample does not reach are filled with the engine's *local-access estimate* (slate colour, "Small streets (est.)" toggle): the full-population residents travelling to and from the main roads, scaled to the sample. It is an estimate, not a simulation, so it has no congestion colour and is not used in Difference mode.
 - Before any run, the map shows baseline congestion (tt ÷ free flow). After a run, the legend can switch between Difference, Scenario congestion and Reference congestion.
 
 **Summary card:** shows deltas of `total_delay_veh_h` and `mean_trip_min` against the reference. Counts from the 5 % vehicle sample are scaled by `1/sample_fraction`. The delay chart in the timeline plots the scenario against the reference (dashed), with rain bars.

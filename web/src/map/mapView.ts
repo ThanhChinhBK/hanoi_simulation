@@ -7,12 +7,13 @@ import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import { PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
+import { PathStyleExtension, type PathStyleExtensionProps } from '@deck.gl/extensions';
 import { TripsLayer } from '@deck.gl/geo-layers';
 import type { Layer, PickingInfo } from '@deck.gl/core';
 import { state } from '../state';
 import type { Network } from '../network';
 import { buildTrips, type LngLat, type TripPath } from '../logic/trips';
-import { computeLinkStyle, aggTt, binRange, type LinkStyle } from '../logic/linkStyle';
+import { computeLinkStyle, aggTt, binRange, localAccessFactor, type LinkStyle } from '../logic/linkStyle';
 import { parseTime, formatTime } from '../logic/time';
 import { fmt } from '../ui/dom';
 import type { Hotspot, RunData, ScenarioEvent } from '../types';
@@ -20,7 +21,15 @@ import type { Hotspot, RunData, ScenarioEvent } from '../types';
 export interface LinkDatum {
   id: number;
   path: LngLat[];
+  /** Two-way roads: each direction is drawn on its right-hand side (Vietnam drives on the right). */
+  offset: number;
 }
+
+/** Offset in multiples of the line width; > 0.5 leaves a small gap between the two directions. */
+const TWO_WAY_OFFSET = 0.6;
+/** Vehicles keep to the right of the road centre line. */
+const VEHICLE_OFFSET = 0.9;
+const OFFSET_EXT = [new PathStyleExtension({ offset: true })];
 
 interface NodeDatum {
   i: number;
@@ -163,7 +172,7 @@ export class MapView {
     const links: LinkDatum[] = [];
     for (let i = 0; i < n; i++) {
       const g = this.net.geom(i);
-      if (g) links.push({ id: i, path: g });
+      if (g) links.push({ id: i, path: g, offset: this.net.twin(i) !== null ? TWO_WAY_OFFSET : 0 });
     }
     this.links = links;
     this.styleKey = '';
@@ -190,7 +199,7 @@ export class MapView {
   private linkStyle(): LinkStyle {
     const closed = this.closedLinks();
     const view = this.effectiveView();
-    const key = [state.bin, view, state.smoothing, state.result ? state.result.meta.n_links : 0, [...closed].join(',')].join('|');
+    const key = [state.bin, view, state.smoothing, state.layers.localAccess, state.result ? state.result.meta.n_links : 0, [...closed].join(',')].join('|');
     if (!this.style || key !== this.styleKey) {
       this.style = computeLinkStyle({
         current: state.current,
@@ -199,6 +208,7 @@ export class MapView {
         bin: state.bin,
         smoothing: state.smoothing,
         closed,
+        localAccess: state.layers.localAccess,
       });
       this.styleKey = key;
     }
@@ -268,12 +278,14 @@ export class MapView {
         capRounded: true,
         jointRounded: true,
       }),
-      new PathLayer<LinkDatum>({
+      new PathLayer<LinkDatum, PathStyleExtensionProps<LinkDatum>>({
         id: 'links',
         data: this.links,
         getPath: (d) => d.path,
         getColor: (d) => style.colors.subarray(d.id * 4, d.id * 4 + 4) as unknown as Color,
         getWidth: (d) => style.widths[d.id],
+        getOffset: (d) => d.offset,
+        extensions: OFFSET_EXT,
         widthUnits: 'pixels',
         widthMinPixels: 1,
         capRounded: true,
@@ -288,7 +300,7 @@ export class MapView {
       const g = this.net.geom(state.selection.link);
       if (g)
         layers.push(
-          new PathLayer<LngLat[]>({ id: 'selected', data: [g], getPath: (d) => d, getColor: [15, 23, 42, 230], getWidth: 7, widthUnits: 'pixels', capRounded: true }),
+          new PathLayer<LngLat[], PathStyleExtensionProps<LngLat[]>>({ id: 'selected', data: [g], getPath: (d) => d, getColor: [15, 23, 42, 230], getWidth: 7, widthUnits: 'pixels', capRounded: true, getOffset: this.net.twin(state.selection.link) !== null ? TWO_WAY_OFFSET : 0, extensions: OFFSET_EXT }),
         );
     }
     if (state.layers.flood) {
@@ -315,13 +327,15 @@ export class MapView {
     if (state.layers.vehicles) {
       this.ensureTrips();
       layers.push(
-        new TripsLayer<TripPath>({
+        new TripsLayer<TripPath, PathStyleExtensionProps<TripPath>>({
           id: 'trips',
           data: this.trips,
           getPath: (d) => d.path,
           getTimestamps: (d) => d.timestamps,
           getColor: (d) => VEHICLE_COLORS[d.vehicleType] ?? [80, 80, 80],
           widthMinPixels: 3,
+          getOffset: VEHICLE_OFFSET,
+          extensions: OFFSET_EXT,
           capRounded: true,
           jointRounded: true,
           trailLength: 120,
@@ -427,7 +441,10 @@ export class MapView {
         let rows = `<div><b>${esc(this.net.linkName(l))}</b></div><div class="muted">${link ? `${esc(link.road_class)} · ${link.lanes} lanes · ${link.maxspeed_kmh} km/h · ${fmt(link.length_m)} m` : 'new road'}</div>`;
         rows += `<div>${state.result ? 'Scenario' : 'Baseline'} travel time: <b>${tt(cur.tt)}</b> <span class="muted">(free flow ${fmt(ff / 1000, 0)} s)</span></div>`;
         if (state.result && state.reference) rows += `<div>Reference: ${tt(aggTt(state.reference, l, a, b).tt)}</div>`;
-        rows += `<div class="muted">≈${fmt(cur.count / sf, 0)} vehicles entering per 10 min</div>`;
+        rows += `<div class="muted">≈${fmt(cur.count / sf, 0)} vehicles entering per 10 min (simulated sample ×${fmt(1 / sf, 0)})</div>`;
+        const est = (state.current.accessVolume[l] ?? 0) * localAccessFactor(state.current, a, b);
+        if (est > 0)
+          rows += `<div class="muted">Local access estimate: ≈${fmt(est / sf, 0)} per 10 min · ${fmt(state.current.accessVolume[l], 0)} over the morning (residents to/from the main roads; not simulated)</div>`;
         return box(rows);
       }
       case 'flood': {
