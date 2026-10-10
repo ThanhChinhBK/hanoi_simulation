@@ -258,3 +258,26 @@ fn shipped_scenarios_parse() {
     }
     assert!(n > 0);
 }
+
+/// Trips start and end at a zone's access nodes (homes along small streets, POIs),
+/// weighted by their population / POI weight — not only at the zone's centre node.
+#[test]
+fn trips_use_zone_access_nodes() {
+    use hanoi_engine::demandgen;
+    use hanoi_engine::{City, Params};
+    let mut b = bundle_json();
+    // zone 0 sends all its residents from node 1 and receives all its visitors at node 7
+    b["zones"][0]["access"] = json!([[1, 6000.0, 0.0], [7, 0.0, 50.0]]);
+    let bundle = Arc::new(Bundle::from_json(&b.to_string()).unwrap());
+    let p = Params::default();
+    let city = City::build(bundle, &p, &[]).unwrap();
+    let plans = demandgen::generate(&city, &p, 7);
+    let count = |f: &dyn Fn(&demandgen::Plan) -> usize, n: usize| plans.iter().filter(|t| f(t) == n).count();
+    let (o, d) = (|t: &demandgen::Plan| t.origin.idx(), |t: &demandgen::Plan| t.dest.idx());
+    // zone 0's centre node is no longer an access point
+    assert_eq!(count(&o, 0) + count(&d, 0), 0);
+    // node 1 now carries zone 0's residents on top of its own zone's
+    assert!(count(&o, 1) as f64 > 1.6 * count(&o, 2) as f64, "{} vs {}", count(&o, 1), count(&o, 2));
+    // node 7 (r1 c0) attracts zone 0's visitors on top of its own; node 8 (r1 c1) is its twin
+    assert!(count(&d, 7) > count(&d, 8), "{} vs {}", count(&d, 7), count(&d, 8));
+}

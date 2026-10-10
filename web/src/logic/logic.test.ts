@@ -12,8 +12,8 @@ describe('scenario URL', () => {
       name: 'Mưa lớn ở Hà Nội',
       events: [
         { type: 'rain', profile: [{ at: '07:00', mm_per_hour: 80 }, { at: '08:00', mm_per_hour: 0 }], flood_model: 'bucket' },
-        { type: 'closure', links: [4256, 11154], from: '06:00', to: '22:00' },
-        { type: 'add_road', from_node: 2974, to_node: 2147, road_class: 'primary', lanes: 3 },
+        { type: 'closure', links: [38620, 30436], from: '06:00', to: '22:00' },
+        { type: 'add_road', from_node: 7192, to_node: 4108, road_class: 'primary', lanes: 3 },
       ],
       parameter_overrides: { 'population.scale': 1.1 },
     };

@@ -44,7 +44,8 @@ def map_hotspots(nodes: list[dict], links: list[dict], csv_path=None) -> tuple[l
     rows = list(csv.DictReader(open(csv_path, encoding="utf-8")))
     by_name: dict[str, list[int]] = defaultdict(list)
     for i, l in enumerate(links):
-        if l["name"]:
+        # Alleys are named after their street ("Ngõ 82 Phố Kim Mã"): never match them.
+        if l["name"] and l["road_class"] != "service":
             by_name[l["name"]].append(i)
 
     def street_links(q: str) -> list[int]:

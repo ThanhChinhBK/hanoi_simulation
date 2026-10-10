@@ -4,7 +4,7 @@
   "events": [
     {
       "type": "signal",
-      "node": 2974,
+      "node": 7192,
       "cycle_s": 150,
       "green_split": {
         "north_south": 0.4,

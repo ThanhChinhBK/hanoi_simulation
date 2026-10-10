@@ -52,7 +52,12 @@ before being trapped in a dead end. A vehicle with no path left is aborted (repo
 
 **Demand** (`demandgen.rs`): zone population (WorldPop grid) × trip rate × mode share
 → trips; destinations by a gravity model over POI attraction; departure times from a
-parameterised AM-peak profile; through-traffic at city entry points. Motorbikes, cars and
+parameterised AM-peak profile; through-traffic at city entry points. Zones are 200 m
+cells; each lists **access nodes** (bundle `zones[].access` = `[node, population, poi]`):
+the pipeline spreads every 100 m WorldPop cell over the ngõ/residential street nodes near
+it and snaps POIs to their nearest node. Trips start at a home node drawn by population
+and end at a node drawn by POI weight, so traffic appears on the small streets where
+people live (falls back to the zone's centre node when `access` is empty). Motorbikes, cars and
 buses are vehicle types with their own PCU (buses as road-occupying vehicles only).
 
 **Replanning** (`replan.rs`, `scenario.rs`): each iteration simulates everyone, then a
@@ -101,8 +106,10 @@ target/release/hanoi-sim run --bundle $B --routes data/out/routes.bin \
 # any command: --set key=value,key=value  (baseline parameter overrides, for calibration)
 ```
 
-Inner Hanoi (8k nodes, 19k links, 5% sample = 35k trips): baseline 50 iterations ≈ 85 s;
-a sudden scenario ≈ 1–2 s, a structural one ≈ 10–30 s (native; WASM ≈ same).
+Inner Hanoi incl. alleys (42k nodes, 97k links of which 62k `service` = ngõ/ngách;
+5% sample = 35k trips): baseline 50 iterations ≈ 7 min; a sudden scenario ≈ 3–10 s,
+a structural one ≈ 1–4 min (native; WASM ≈ same). The web animates up to 8,000 traced
+vehicles (`MAX_TRACES` in `scenario.rs`).
 
 ## Determinism
 

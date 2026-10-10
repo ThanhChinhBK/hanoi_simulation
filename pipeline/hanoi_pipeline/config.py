@@ -17,9 +17,17 @@ BBOX = (105.775, 20.975, 105.875, 21.065)  # west, south, east, north (WGS84)
 ROAD_CLASSES = [
     "motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link",
     "secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified",
-    "residential", "living_street",
+    "residential", "living_street", "service",
 ]
-OSM_ROAD_FILTER = '["highway"~"^(' + "|".join(ROAD_CLASSES) + ')$"]'
+# Ngõ/ngách are mostly highway=service (+ service=alley) in Hanoi OSM. Parking aisles,
+# driveways and private service roads are left out; footways (mostly sidewalks) too.
+OSM_ROAD_FILTER = [
+    '["highway"~"^(' + "|".join(c for c in ROAD_CLASSES if c != "service") + ')$"]',
+    '["highway"="service"]["service"!~"parking_aisle|parking|driveway|drive-through|emergency_access"]'
+    '["access"!~"^(private|no)$"]["area"!="yes"]',
+]
+MINOR_CLASSES = {"residential", "living_street", "service", "unclassified"}
+GEOM_SIMPLIFY_DEG = 1e-5  # ~1 m: drops redundant vertices, keeps the shape
 
 WORLDPOP_URL = (
     "https://data.worldpop.org/GIS/Population/Global_2000_2020_Constrained/2020/BSGM/VNM/"
@@ -31,7 +39,11 @@ COPERNICUS_DEM_URL = (
     "Copernicus_DSM_COG_10_{t}_DEM.tif"
 )
 
-ZONE_SIZE_M = 400.0
+ZONE_SIZE_M = 200.0
+# Population cells are spread over minor-road nodes within this radius of the cell
+# centre (people live along ngõ); POIs attach to the nearest node within POI_SNAP_M.
+HOME_SNAP_M = 75.0
+POI_SNAP_M = 150.0
 CATCHMENT_SIZE_M = 1000.0
 
 # 2019 census (GSO), population of the six inner districts (old boundaries).

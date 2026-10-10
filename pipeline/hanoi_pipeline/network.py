@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import osmnx as ox
 import rasterio
+from shapely.geometry import LineString
 
 from . import config
 from .download import fetch
@@ -93,7 +94,10 @@ def build_network(bbox=config.BBOX) -> dict:
     lonlat = [(G.nodes[n]["x"], G.nodes[n]["y"]) for n in osm_nodes]
     elev = sample_elevation(lonlat)
 
-    signal_nodes = _snap_signals(bbox, lonlat)
+    # Signals sit on real streets, never on ngõ: snap only to nodes touching a non-alley road.
+    street_nodes = sorted({nid[n] for u, v, d in G.edges(data=True)
+                           if _best_class(d.get("highway")) != "service" for n in (u, v)})
+    signal_nodes = _snap_signals(bbox, lonlat, street_nodes)
 
     nodes = [
         {"lon": round(x, 6), "lat": round(y, 6), "elev_m": e, "signal": i in signal_nodes}
@@ -109,7 +113,10 @@ def build_network(bbox=config.BBOX) -> dict:
         if lanes is not None and not oneway:
             lanes = max(1.0, lanes / 2.0)
         if "geometry" in d:
-            coords = [(round(x, 6), round(y, 6)) for x, y in d["geometry"].coords]
+            g = d["geometry"].simplify(config.GEOM_SIMPLIFY_DEG, preserve_topology=False)
+            if not isinstance(g, LineString) or len(g.coords) < 2:
+                g = d["geometry"]
+            coords = [(round(x, 6), round(y, 6)) for x, y in g.coords]
         else:
             coords = [nodes[nid[u]]["lon"], nodes[nid[u]]["lat"]], [nodes[nid[v]]["lon"], nodes[nid[v]]["lat"]]
             coords = [tuple(c) for c in coords]
@@ -134,7 +141,7 @@ def build_network(bbox=config.BBOX) -> dict:
     return {"nodes": nodes, "links": links, "entries": entries}
 
 
-def _snap_signals(bbox, lonlat, max_dist_m: float = 40.0) -> set[int]:
+def _snap_signals(bbox, lonlat, candidates: list[int], max_dist_m: float = 40.0) -> set[int]:
     try:
         feats = ox.features_from_bbox(bbox, tags={"highway": "traffic_signals"})
     except Exception as e:  # noqa: BLE001 - no signals is a valid outcome
@@ -143,14 +150,14 @@ def _snap_signals(bbox, lonlat, max_dist_m: float = 40.0) -> set[int]:
     pts = [(g.x, g.y) for g in feats.geometry if g.geom_type == "Point"]
     if not pts:
         return set()
-    xy = np.array([to_xy(x, y) for x, y in lonlat])
+    xy = np.array([to_xy(*lonlat[i]) for i in candidates])
     out = set()
     for x, y in pts:
         px, py = to_xy(x, y)
         d = np.hypot(xy[:, 0] - px, xy[:, 1] - py)
-        i = int(np.argmin(d))
-        if d[i] <= max_dist_m:
-            out.add(i)
+        k = int(np.argmin(d))
+        if d[k] <= max_dist_m:
+            out.add(candidates[k])
     return out
 
 

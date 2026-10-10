@@ -107,9 +107,67 @@ fn mode_rates(p: &Params) -> [(VehicleTypeId, f64); 3] {
     ]
 }
 
-/// Zones whose node can start and end trips.
-fn usable_zone(city: &City, z: usize) -> bool {
-    city.origin_link[city.zones[z].node.idx()].is_some()
+/// Street nodes of a zone where trips can start/end, with cumulative weights for
+/// drawing origins (population) and destinations (attraction mixed with population).
+struct Access {
+    nodes: Vec<NodeId>,
+    origin_cum: Vec<f64>,
+    dest_cum: Vec<f64>,
+}
+
+impl Access {
+    fn usable(&self) -> bool {
+        !self.nodes.is_empty()
+    }
+    fn origin(&self, rng: &mut Rng) -> NodeId {
+        self.nodes[rng.pick_cumulative(&self.origin_cum)]
+    }
+    fn dest(&self, rng: &mut Rng) -> NodeId {
+        self.nodes[rng.pick_cumulative(&self.dest_cum)]
+    }
+}
+
+fn zone_access(city: &City, p: &Params) -> Vec<Access> {
+    let m = p.get("attraction.population_mix");
+    city.zones
+        .iter()
+        .map(|z| {
+            let ok = |n: NodeId| city.origin_link[n.idx()].is_some();
+            let mut entries: Vec<(NodeId, f64, f64)> =
+                z.access.iter().copied().filter(|a| ok(a.0)).collect();
+            if entries.is_empty() && ok(z.node) {
+                entries.push((z.node, 1.0, 1.0));
+            }
+            let (sp, sa) = entries.iter().fold((0.0, 0.0), |s, e| (s.0 + e.1, s.1 + e.2));
+            let norm = |v: f64, t: f64, n: usize| if t > 0.0 { v / t } else { 1.0 / n as f64 };
+            let n = entries.len();
+            let (mut a, mut b) = (0.0, 0.0);
+            let mut origin_cum = Vec::with_capacity(n);
+            let mut dest_cum = Vec::with_capacity(n);
+            for e in &entries {
+                a += norm(e.1, sp, n);
+                b += (1.0 - m) * norm(e.2, sa, n) + m * norm(e.1, sp, n);
+                origin_cum.push(a);
+                dest_cum.push(b);
+            }
+            Access {
+                nodes: entries.iter().map(|e| e.0).collect(),
+                origin_cum,
+                dest_cum,
+            }
+        })
+        .collect()
+}
+
+/// Draw a destination node in zone `j` different from `origin` (few retries).
+fn dest_node(acc: &Access, origin: NodeId, rng: &mut Rng) -> Option<NodeId> {
+    for _ in 0..4 {
+        let d = acc.dest(rng);
+        if d != origin {
+            return Some(d);
+        }
+    }
+    None
 }
 
 pub fn generate(city: &City, p: &Params, seed: u64) -> Vec<Plan> {
@@ -119,16 +177,17 @@ pub fn generate(city: &City, p: &Params, seed: u64) -> Vec<Plan> {
     let attr = attraction(city, p);
     let rates = mode_rates(p);
     let zones = &city.zones;
+    let access = zone_access(city, p);
     let mut plans = Vec::new();
     let mut cum = vec![0.0; zones.len()];
 
     for (i, zi) in zones.iter().enumerate() {
-        if !usable_zone(city, i) || zi.population <= 0.0 {
+        if !access[i].usable() || zi.population <= 0.0 {
             continue;
         }
         let mut acc = 0.0;
         for (j, zj) in zones.iter().enumerate() {
-            if zj.node != zi.node && usable_zone(city, j) {
+            if j != i && access[j].usable() {
                 acc += attr[j] * (-beta * (zi.x - zj.x).hypot(zi.y - zj.y)).exp();
             }
             cum[j] = acc;
@@ -141,9 +200,13 @@ pub fn generate(city: &City, p: &Params, seed: u64) -> Vec<Plan> {
             let n = rng.round_stochastic(zi.population * per_person * rate * f);
             for _ in 0..n {
                 let j = rng.pick_cumulative(&cum);
+                let origin = access[i].origin(&mut rng);
+                let Some(dest) = dest_node(&access[j], origin, &mut rng) else {
+                    continue;
+                };
                 plans.push(Plan {
-                    origin: zi.node,
-                    dest: zones[j].node,
+                    origin,
+                    dest,
                     depart_ms: departure(&mut rng, p),
                     vtype: vt,
                     kind: TripKind::Local,
@@ -151,11 +214,11 @@ pub fn generate(city: &City, p: &Params, seed: u64) -> Vec<Plan> {
             }
         }
     }
-    plans.extend(through_traffic(city, p, seed, &attr));
+    plans.extend(through_traffic(city, p, seed, &attr, &access));
     plans
 }
 
-fn through_traffic(city: &City, p: &Params, seed: u64, attr: &[f64]) -> Vec<Plan> {
+fn through_traffic(city: &City, p: &Params, seed: u64, attr: &[f64], access: &[Access]) -> Vec<Plan> {
     let f = p.get("sample_fraction");
     let beta = p.get("gravity.beta_per_km") / 1000.0;
     let window_h = p.get("departure.end_h") - p.get("departure.start_h");
@@ -195,7 +258,7 @@ fn through_traffic(city: &City, p: &Params, seed: u64, attr: &[f64]) -> Vec<Plan
             .iter()
             .enumerate()
             .map(|(j, z)| {
-                if z.node != node && usable_zone(city, j) {
+                if access[j].usable() {
                     zacc += attr[j] * (-beta * (z.x - n0.x).hypot(z.y - n0.y)).exp();
                 }
                 zacc
@@ -207,7 +270,10 @@ fn through_traffic(city: &City, p: &Params, seed: u64, attr: &[f64]) -> Vec<Plan
             let dest = if !exits.is_empty() && rng.f64() < transit {
                 exits[rng.pick_cumulative(&exit_cum)].0
             } else if zacc > 0.0 {
-                city.zones[rng.pick_cumulative(&zone_cum)].node
+                match dest_node(&access[rng.pick_cumulative(&zone_cum)], node, &mut rng) {
+                    Some(d) => d,
+                    None => continue,
+                }
             } else {
                 continue;
             };
@@ -239,13 +305,14 @@ pub fn event_trips(
     let f = p.get("sample_fraction");
     let beta = 0.1 / 1000.0;
     let d = city.net.node(dest);
+    let access = zone_access(city, p);
     let mut acc = 0.0;
     let cum: Vec<f64> = city
         .zones
         .iter()
         .enumerate()
         .map(|(j, z)| {
-            if z.node != dest && usable_zone(city, j) {
+            if access[j].usable() {
                 acc += z.population * (-beta * (z.x - d.x).hypot(z.y - d.y)).exp();
             }
             acc
@@ -262,12 +329,17 @@ pub fn event_trips(
         }
         let n = rng.round_stochastic(persons * rate * f);
         for _ in 0..n {
-            let z = &city.zones[rng.pick_cumulative(&cum)];
+            let j = rng.pick_cumulative(&cum);
+            let z = &city.zones[j];
+            let origin = access[j].origin(&mut rng);
+            if origin == dest {
+                continue;
+            }
             let arrive = arrive_from + ((arrive_to - arrive_from) as f64 * rng.f64()) as TimeMs;
             // Rough travel-time guess: 1.3 × straight distance at 15 km/h.
             let est = ((z.x - d.x).hypot(z.y - d.y) * 1.3 / (15.0 / 3.6) * 1000.0) as TimeMs;
             plans.push(Plan {
-                origin: z.node,
+                origin,
                 dest,
                 depart_ms: ((arrive - est).max(0) / 1000) * 1000,
                 vtype: vt,

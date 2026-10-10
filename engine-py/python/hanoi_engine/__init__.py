@@ -2,7 +2,7 @@
 
     from hanoi_engine import Engine
     eng = Engine.load("data/bundles/hanoi-inner.json", "data/out/routes.bin")
-    out = eng.run({"events": [{"type": "closure", "links": [4256]}]})
+    out = eng.run({"events": [{"type": "closure", "links": [38620]}]})
     ref = eng.reference(out)
     print(out.summary["total_delay_veh_h"] / ref.summary["total_delay_veh_h"] - 1)
 

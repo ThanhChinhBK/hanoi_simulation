@@ -14,7 +14,7 @@ uv venv .venv && uv pip install --python .venv/bin/python maturin numpy pytest
 from hanoi_engine import Engine, default_params
 
 eng = Engine.load("../data/bundles/hanoi-inner.json", "../data/out/routes.bin")
-run = eng.run({"events": [{"type": "closure", "links": [4256]}]})
+run = eng.run({"events": [{"type": "closure", "links": [38620]}]})
 ref = eng.reference(run)                       # baseline or control, as appropriate
 print(run.summary["total_delay_veh_h"] / ref.summary["total_delay_veh_h"] - 1)
 worse = run.link_delay_veh_h() - ref.link_delay_veh_h()   # numpy, per link

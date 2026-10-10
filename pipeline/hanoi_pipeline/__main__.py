@@ -24,7 +24,7 @@ BUNDLE_VERSION = 1
 
 def build(bbox=config.BBOX, name: str = "hanoi-inner") -> tuple[dict, dict]:
     net = build_network(bbox)
-    zones, pop_check = build_zones(bbox, net["nodes"])
+    zones, pop_check = build_zones(bbox, net["nodes"], net["links"])
     hotspots, hotspot_report = map_hotspots(net["nodes"], net["links"])
     catchments = build_catchments(bbox, net["nodes"], net["links"])
     bundle = {

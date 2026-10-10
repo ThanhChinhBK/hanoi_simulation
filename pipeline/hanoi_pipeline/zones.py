@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import math
+from collections import defaultdict
 
 import numpy as np
 import osmnx as ox
 import rasterio
 from rasterio.windows import from_bounds
+from scipy.spatial import cKDTree
 
 from . import config
 from .download import fetch
@@ -88,34 +90,70 @@ def population_cells(bbox) -> tuple[list[tuple[float, float, float]], float]:
     return cells, total
 
 
-def build_zones(bbox, nodes: list[dict]) -> tuple[list[dict], dict]:
+def build_zones(bbox, nodes: list[dict], links: list[dict]) -> tuple[list[dict], dict]:
+    """Zones on a `ZONE_SIZE_M` grid. Each zone lists its access nodes: population of
+    each 100 m WorldPop cell is spread over the minor-road (ngõ, residential) nodes
+    near the cell centre; POIs attach to their nearest node. Trips start and end at
+    these nodes, so traffic appears on the small streets where people live."""
     size = config.ZONE_SIZE_M
     acc: dict[tuple[int, int], dict] = {}
 
     def zone(ix, iy):
-        return acc.setdefault((ix, iy), {"population": 0.0, "poi": {c: 0.0 for c in CATEGORIES}})
-
-    cells, pop_total = population_cells(bbox)
-    for lon, lat, p in cells:
-        zone(*grid_index(lon, lat, bbox, size))["population"] += p
-    for lon, lat, cat, w in poi_points(bbox):
-        if bbox[0] <= lon < bbox[2] and bbox[1] <= lat < bbox[3]:
-            zone(*grid_index(lon, lat, bbox, size))["poi"][cat] += w
+        return acc.setdefault((ix, iy), {"population": 0.0, "poi": {c: 0.0 for c in CATEGORIES},
+                                         "access": defaultdict(lambda: [0.0, 0.0])})
 
     node_xy = np.array([to_xy(n["lon"], n["lat"]) for n in nodes])
+    all_tree = cKDTree(node_xy)
+    minor = sorted({l[e] for l in links if l["road_class"] in config.MINOR_CLASSES for e in ("from", "to")})
+    minor_tree = cKDTree(node_xy[minor])
+
+    cells, pop_total = population_cells(bbox)
+    unplaced = 0.0
+    for lon, lat, p in cells:
+        z = zone(*grid_index(lon, lat, bbox, size))
+        z["population"] += p
+        xy = to_xy(lon, lat)
+        near = [minor[k] for k in minor_tree.query_ball_point(xy, config.HOME_SNAP_M)]
+        if not near:
+            d, k = all_tree.query(xy)
+            if d > size:
+                unplaced += p
+                continue
+            near = [int(k)]
+        for n in near:
+            z["access"][n][0] += p / len(near)
+    n_poi = 0
+    for lon, lat, cat, w in poi_points(bbox):
+        if not (bbox[0] <= lon < bbox[2] and bbox[1] <= lat < bbox[3]):
+            continue
+        z = zone(*grid_index(lon, lat, bbox, size))
+        z["poi"][cat] += w
+        d, k = all_tree.query(to_xy(lon, lat))
+        if d <= config.POI_SNAP_M:
+            z["access"][int(k)][1] += w
+            n_poi += 1
+
     zones = []
     for (ix, iy), z in sorted(acc.items()):
         lon, lat = grid_center(ix, iy, bbox, size)
         x, y = to_xy(lon, lat)
-        d = np.hypot(node_xy[:, 0] - x, node_xy[:, 1] - y)
-        i = int(np.argmin(d))
-        if d[i] > size:  # e.g. cells in the river with no road nearby
-            continue
+        access = sorted((n, round(a, 2), round(b, 2)) for n, (a, b) in z["access"].items()
+                        if round(a, 2) > 0 or round(b, 2) > 0)
+        if access:
+            centre = min(access, key=lambda a: (np.hypot(*(node_xy[a[0]] - (x, y))), a[0]))[0]
+        else:
+            d, k = all_tree.query((x, y))
+            if d > size:  # e.g. cells in the river with no road nearby
+                continue
+            centre = int(k)
         zones.append({
-            "lon": round(lon, 6), "lat": round(lat, 6), "node": i,
+            "lon": round(lon, 6), "lat": round(lat, 6), "node": int(centre),
             "population": round(z["population"], 1),
             "poi": {k: round(v, 2) for k, v in z["poi"].items()},
+            "access": [[int(n), a, b] for n, a, b in access],
         })
+    log.info("zones: %d, access nodes: %d, POIs snapped: %d, population not placed: %.0f",
+             len(zones), sum(len(z["access"]) for z in zones), n_poi, unplaced)
     census = sum(config.CENSUS_2019_INNER.values())
     check = {
         "worldpop_2020_bbox_total": round(pop_total),

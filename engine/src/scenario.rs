@@ -218,7 +218,7 @@ struct Dynamic {
 
 pub const DEFAULT_SEED: u64 = 42;
 const STATS_BIN_MS: TimeMs = 10 * 60_000;
-const MAX_TRACES: usize = 1500;
+const MAX_TRACES: usize = 8000;
 
 pub fn stats_window(p: &Params) -> StatsConfig {
     let start = hours(p.get("departure.start_h") - 0.5);

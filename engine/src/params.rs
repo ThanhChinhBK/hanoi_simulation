@@ -62,7 +62,7 @@ impl std::fmt::Display for ParamError {
 }
 impl std::error::Error for ParamError {}
 
-pub const ROAD_CLASSES: [&str; 8] = [
+pub const ROAD_CLASSES: [&str; 9] = [
     "motorway",
     "trunk",
     "primary",
@@ -71,6 +71,7 @@ pub const ROAD_CLASSES: [&str; 8] = [
     "unclassified",
     "residential",
     "living_street",
+    "service",
 ];
 
 const ASSUME: &str = "assumption";
@@ -176,7 +177,7 @@ impl Default for Params {
         let a_low = (ASSUME, Low);
 
         // ------------------------------------------------------------- network
-        let classes: [(&str, f64, f64, f64); 8] = [
+        let classes: [(&str, f64, f64, f64); 9] = [
             // class, capacity PCU/h/lane, free speed km/h, default lanes per direction
             ("motorway", 2000.0, 80.0, 2.0),
             ("trunk", 1800.0, 60.0, 2.0),
@@ -186,6 +187,8 @@ impl Default for Params {
             ("unclassified", 700.0, 25.0, 1.0),
             ("residential", 600.0, 20.0, 1.0),
             ("living_street", 300.0, 12.0, 1.0),
+            // Ngõ/ngách (OSM service=alley): 2–4 m wide, motorbikes, pedestrians, stalls.
+            ("service", 400.0, 12.0, 1.0),
         ];
         for (c, cap, v, lanes) in classes {
             p.add(&format!("capacity_per_lane.{c}"), cap, "PCU/h/lane", (0.0, 4000.0), Network,
@@ -403,6 +406,7 @@ mod tests {
     fn class_lookup_uses_parent_for_links() {
         let p = Params::default();
         assert_eq!(p.class_value("capacity_per_lane", "primary_link"), 1500.0);
-        assert_eq!(p.class_value("capacity_per_lane", "service"), 700.0);
+        assert_eq!(p.class_value("capacity_per_lane", "service"), 400.0);
+        assert_eq!(p.class_value("capacity_per_lane", "busway"), 700.0);
     }
 }

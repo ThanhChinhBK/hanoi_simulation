@@ -51,6 +51,11 @@ pub struct BZone {
     pub population: f64,
     #[serde(default)]
     pub poi: BTreeMap<String, f64>,
+    /// Street nodes where the zone's trips start and end: `[node, population, poi
+    /// weight]`. Origins are drawn by population, destinations by POI weight (mixed
+    /// with population). Empty = all trips use `node`.
+    #[serde(default)]
+    pub access: Vec<(u32, f64, f64)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -112,8 +117,11 @@ impl Bundle {
             }
         }
         for (i, z) in self.zones.iter().enumerate() {
-            if z.node >= n {
+            if z.node >= n || z.access.iter().any(|a| a.0 >= n) {
                 return Err(format!("bundle zone {i}: unknown node"));
+            }
+            if z.access.iter().any(|a| !(a.1 >= 0.0 && a.2 >= 0.0)) {
+                return Err(format!("bundle zone {i}: negative access weight"));
             }
         }
         for h in &self.hotspots {
@@ -189,6 +197,8 @@ pub struct Zone {
     pub poi: BTreeMap<String, f64>,
     /// Jobs added by users (converted with `attraction.jobs_per_poi`).
     pub extra_jobs: f64,
+    /// `(node, population weight, attraction weight)`; see [`BZone::access`].
+    pub access: Vec<(NodeId, f64, f64)>,
 }
 
 /// Bundle + parameters + edits, ready to simulate.
@@ -243,6 +253,7 @@ impl City {
                     population: z.population,
                     poi: z.poi.clone(),
                     extra_jobs: 0.0,
+                    access: z.access.iter().map(|&(n, a, b)| (NodeId(n), a, b)).collect(),
                 }
             })
             .collect();
@@ -333,11 +344,14 @@ impl City {
                     let (x, y) = proj(at[1], at[0]);
                     let z = nearest_zone_or_new(&mut zones, &xy, x, y);
                     zones[z].population += population;
+                    add_access(&mut zones[z], nearest_node(&xy, x, y), *population, 0.0);
                 }
                 StructuralEdit::Jobs { at, jobs } => {
                     let (x, y) = proj(at[1], at[0]);
                     let z = nearest_zone_or_new(&mut zones, &xy, x, y);
                     zones[z].extra_jobs += jobs;
+                    let w = jobs / params.get("attraction.jobs_per_poi");
+                    add_access(&mut zones[z], nearest_node(&xy, x, y), 0.0, w);
                 }
             }
         }
@@ -438,7 +452,20 @@ fn nearest_zone_or_new(zones: &mut Vec<Zone>, xy: &[(f64, f64)], x: f64, y: f64)
             return i;
         }
     }
-    let node = xy
+    zones.push(Zone {
+        node: nearest_node(xy, x, y),
+        x,
+        y,
+        population: 0.0,
+        poi: BTreeMap::new(),
+        extra_jobs: 0.0,
+        access: Vec::new(),
+    });
+    zones.len() - 1
+}
+
+fn nearest_node(xy: &[(f64, f64)], x: f64, y: f64) -> NodeId {
+    let i = xy
         .iter()
         .enumerate()
         .min_by(|a, b| {
@@ -448,15 +475,23 @@ fn nearest_zone_or_new(zones: &mut Vec<Zone>, xy: &[(f64, f64)], x: f64, y: f64)
         })
         .map(|(i, _)| i)
         .unwrap_or(0);
-    zones.push(Zone {
-        node: NodeId(node as u32),
-        x,
-        y,
-        population: 0.0,
-        poi: BTreeMap::new(),
-        extra_jobs: 0.0,
-    });
-    zones.len() - 1
+    NodeId(i as u32)
+}
+
+/// Add weight at a street node of a zone. A zone without access entries used only
+/// its centre node, so that is kept with the existing population/attraction.
+fn add_access(z: &mut Zone, node: NodeId, pop: f64, attr: f64) {
+    if z.access.is_empty() {
+        let poi: f64 = z.poi.values().sum::<f64>() + 1e-9;
+        z.access.push((z.node, z.population.max(0.0) - pop.max(0.0) + 1e-9, poi));
+    }
+    match z.access.iter_mut().find(|a| a.0 == node) {
+        Some(a) => {
+            a.1 += pop;
+            a.2 += attr;
+        }
+        None => z.access.push((node, pop, attr)),
+    }
 }
 
 const MAJOR: [&str; 4] = ["trunk", "primary", "secondary", "motorway"];
