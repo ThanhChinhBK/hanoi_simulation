@@ -58,9 +58,24 @@ CENSUS_2019_INNER = {
     "Thanh Xuân": 293_292,
 }
 
+# Metro: OSM route relations, status set by hand (OSM does not tag it reliably).
+# Verify statuses before relying on them; display only (rail is not simulated).
+METRO_BBOX = (105.70, 20.93, 105.92, 21.12)
+METRO_LINES = {
+    "T2A": {"name": "Line 2A Cát Linh – Hà Đông", "colour": "#2e9d48", "status": "operating",
+            "note": "Elevated; opened 6/11/2021."},
+    "T3": {"name": "Line 3 Nhổn – Cầu Giấy", "colour": "#d1427a", "status": "operating",
+           "note": "Elevated section opened 8/8/2024; underground Cầu Giấy – Ga Hà Nội not yet open."},
+    "T2": {"name": "Line 2 Nam Thăng Long – Trần Hưng Đạo", "colour": "#e8a33d", "status": "planned",
+           "note": "Planned / under construction (status: assumption)."},
+    "T8": {"name": "Line 8", "colour": "#7f6cc4", "status": "planned", "note": "Planned (OSM proposal)."},
+    "T10": {"name": "Line 10", "colour": "#3c8dbc", "status": "planned", "note": "Planned (OSM proposal)."},
+    "T14": {"name": "Line 14", "colour": "#9b7b52", "status": "planned", "note": "Planned (OSM proposal)."},
+}
+
 ATTRIBUTIONS = [
     {"name": "OpenStreetMap contributors", "license": "ODbL 1.0",
-     "url": "https://www.openstreetmap.org/copyright", "used_for": "road network, POIs"},
+     "url": "https://www.openstreetmap.org/copyright", "used_for": "road network, POIs, metro lines"},
     {"name": "WorldPop (2020 constrained, 100 m)", "license": "CC BY 4.0",
      "url": "https://www.worldpop.org", "used_for": "population grid"},
     {"name": "Copernicus GLO-30 DEM (ESA)", "license": "Copernicus DEM licence (free)",

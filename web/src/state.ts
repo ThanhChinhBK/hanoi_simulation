@@ -55,10 +55,12 @@ export class AppState {
   speed = 60; // simulated seconds per real second
   view: ViewMode = 'congestion';
   smoothing: Smoothing = 0;
-  layers = { vehicles: true, localAccess: true, flood: true, hotspots: true, nodes: true };
+  layers = { vehicles: true, localAccess: true, metro: true, metroPlanned: false, flood: true, hotspots: true, nodes: true };
   tool: Tool = { kind: 'select' };
   selection: Selection = {};
   run: RunStatus = { running: false, stage: '', fraction: 0 };
+  /** re-run sudden scenarios automatically after each edit */
+  autoRun = true;
 
   build: BuildDefaults = {
     roadClass: 'primary',
@@ -165,4 +167,11 @@ export const state = new AppState();
 export function isStructuralParam(key: string): boolean {
   const c = state.params?.[key]?.category;
   return c === 'network' || c === 'demand';
+}
+
+export function isStructuralScenario(net: { describe(e: ScenarioEvent): { structural: boolean } }): boolean {
+  return (
+    state.scenario.events.some((e) => net.describe(e).structural) ||
+    Object.keys(state.scenario.parameter_overrides ?? {}).some(isStructuralParam)
+  );
 }

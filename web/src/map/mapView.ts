@@ -17,6 +17,7 @@ import { computeLinkStyle, aggTt, binRange, localAccessFactor, type LinkStyle } 
 import { parseTime, formatTime } from '../logic/time';
 import { fmt } from '../ui/dom';
 import type { Hotspot, RunData, ScenarioEvent } from '../types';
+import { parseMetro, type Metro, type MetroLine, type MetroStation } from '../logic/metro';
 
 export interface LinkDatum {
   id: number;
@@ -30,6 +31,7 @@ const TWO_WAY_OFFSET = 0.6;
 /** Vehicles keep to the right of the road centre line. */
 const VEHICLE_OFFSET = 0.9;
 const OFFSET_EXT = [new PathStyleExtension({ offset: true })];
+const DASH_EXT = [new PathStyleExtension({ dash: true })];
 
 interface NodeDatum {
   i: number;
@@ -107,6 +109,7 @@ export class MapView {
     tool: null,
   };
   private zoom = 13;
+  private metro: Metro = { lines: [], stations: [] };
   onClick: (c: MapClick) => void = () => {};
 
   constructor(container: HTMLElement, private net: Network) {
@@ -155,7 +158,7 @@ export class MapView {
     this.zoom = this.map.getZoom();
     this.map.on('zoomend', () => {
       const z = this.map.getZoom();
-      const changed = z >= 15 !== this.zoom >= 15;
+      const changed = z >= 15 !== this.zoom >= 15 || z >= 13 !== this.zoom >= 13;
       this.zoom = z;
       if (changed) this.render();
     });
@@ -344,6 +347,7 @@ export class MapView {
         }),
       );
     }
+    layers.push(...this.metroLayers());
     const showAll = state.tool.kind === 'add-road' || (state.layers.nodes && this.zoom >= 15);
     const nodes = showAll ? this.allNodes : state.layers.nodes ? this.signalNodes : [];
     layers.push(
@@ -409,6 +413,73 @@ export class MapView {
     this.overlay.setProps({ layers });
   }
 
+  /** Metro lines/stations (display only; rail is not simulated). */
+  setMetro(fc: unknown) {
+    this.metro = parseMetro(fc as Parameters<typeof parseMetro>[0]);
+    this.render();
+  }
+
+  private metroLayers(): Layer[] {
+    if (!state.layers.metro || !this.metro.lines.length) return [];
+    const stations = this.metro.stations;
+    const lines = state.layers.metroPlanned ? this.metro.lines : this.metro.lines.filter((l) => l.status === 'operating');
+    return [
+      new PathLayer<MetroLine, PathStyleExtensionProps<MetroLine>>({
+        id: 'metro-casing',
+        data: lines,
+        getPath: (d) => d.path,
+        getColor: (d) => (d.status === 'operating' ? [30, 41, 59, 235] : [255, 255, 255, 220]),
+        getWidth: (d) => (d.status === 'operating' ? 9 : 7),
+        widthUnits: 'pixels',
+        capRounded: true,
+        jointRounded: true,
+      }),
+      new PathLayer<MetroLine, PathStyleExtensionProps<MetroLine>>({
+        id: 'metro',
+        data: lines,
+        getPath: (d) => d.path,
+        getColor: (d) => d.color,
+        getWidth: (d) => (d.status === 'operating' ? 5 : 4),
+        getDashArray: (d) => (d.status === 'operating' ? [0, 0] : [2.5, 1.5]),
+        dashJustified: true,
+        extensions: DASH_EXT,
+        widthUnits: 'pixels',
+        capRounded: true,
+        jointRounded: true,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [15, 23, 42, 160],
+      }),
+      new ScatterplotLayer<MetroStation>({
+        id: 'metro-stations',
+        data: stations,
+        getPosition: (d) => d.pos,
+        getRadius: 6,
+        radiusUnits: 'pixels',
+        getFillColor: [255, 255, 255, 255],
+        getLineColor: (d) => d.color,
+        lineWidthMinPixels: 3,
+        stroked: true,
+        pickable: true,
+      }),
+      new TextLayer<MetroStation>({
+        id: 'metro-labels',
+        data: this.zoom >= 13 ? stations : [],
+        getPosition: (d) => d.pos,
+        getText: (d) => `Ⓜ ${d.name}`,
+        getSize: 12,
+        getColor: [15, 23, 42, 255],
+        getPixelOffset: [0, -16],
+        background: true,
+        getBackgroundColor: [255, 255, 255, 220],
+        backgroundPadding: [3, 1],
+        fontFamily: 'system-ui, sans-serif',
+        fontWeight: 600,
+        characterSet: 'auto',
+      }),
+    ];
+  }
+
   flyTo(p: LngLat, zoom = 16) {
     this.map.flyTo({ center: p, zoom: Math.max(this.map.getZoom(), zoom), duration: 800 });
   }
@@ -460,6 +531,14 @@ export class MapView {
         return box(
           `<div><b>Flood hotspot</b></div><div>${esc(h.label)}</div><div class="muted">${esc(h.kind)} · observed ${esc(h.observed ?? '–')} · confidence ${esc(h.confidence)}</div><div class="muted small">${esc(h.source)}</div>`,
         );
+      }
+      case 'metro': {
+        const m = obj as unknown as MetroLine;
+        return box(`<div><b>${esc(m.name)}</b></div><div class="muted">${m.status === 'operating' ? 'operating' : 'planned / under construction'} · ${esc(m.note)}</div><div class="muted small">Shown for context; the metro is not simulated.</div>`);
+      }
+      case 'metro-stations': {
+        const m = obj as unknown as MetroStation;
+        return box(`<div><b>Ⓜ ${esc(m.name)}</b></div><div class="muted">${esc(m.ref.replace(/^T/, 'Line '))}${m.nameEn && m.nameEn !== m.name ? ` · ${esc(m.nameEn)}` : ''}</div>`);
       }
       case 'markers':
         return box(`<div><b>${esc(obj.label as string)}</b></div><div class="muted">${(obj.index as number) >= 0 ? 'click for options' : 'now click node B'}</div>`);

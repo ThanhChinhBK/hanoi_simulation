@@ -22,9 +22,10 @@ CLI, Python and WASM give bit-identical results for the same inputs and seed.
 ## Quick start
 
 ```sh
-# 1. data (downloads OSM, WorldPop, DEM; ~minutes)
+# 1. data (downloads OSM, WorldPop, DEM; ~minutes). Also writes data/bundles/metro.geojson
+#    (metro lines from OSM via Overpass, map display only; rerun alone: python -m hanoi_pipeline.metro)
 cd pipeline && uv run python -m hanoi_pipeline && cd ..
-# 2. baseline routes (offline equilibrium, ~1.5 min)
+# 2. baseline routes (offline equilibrium, ~4 min)
 cargo build --release
 target/release/hanoi-sim baseline --bundle data/bundles/hanoi-inner.json \
     --routes-out data/out/routes.bin --out data/out/baseline.json

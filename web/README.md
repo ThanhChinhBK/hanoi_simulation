@@ -71,6 +71,7 @@ Every run says what it should be compared with (`meta.reference`):
 - If a link has traffic only in the scenario, it is compared with its free-flow time.
 - Closed and removed links are drawn in purple.
 - Width scales with volume.
+- **Metro:** operating lines 2A and 3 with their stations; planned lines (2, 8, 10, 14) behind the "Planned metro" toggle. They come from OSM route relations (`data/bundles/metro.geojson`), and line status is set by hand in `pipeline/hanoi_pipeline/config.py`. Shown for context only; rail is not simulated.
 - Two-way roads are drawn as two lines, one per direction, offset to the right-hand side of travel (Vietnam drives on the right). Vehicles keep to the right too.
 - Small streets that the 5 % sample does not reach are filled with the engine's *local-access estimate* (slate colour, "Small streets (est.)" toggle): the full-population residents travelling to and from the main roads, scaled to the sample. It is an estimate, not a simulation, so it has no congestion colour and is not used in Difference mode.
 - Before any run, the map shows baseline congestion (tt ÷ free flow). After a run, the legend can switch between Difference, Scenario congestion and Reference congestion.
@@ -83,7 +84,8 @@ The scenario JSON is deflate-raw compressed with the browser `CompressionStream`
 
 ## Using it
 
-- **Scenario tab:** load an example, list or delete changes, Run, read the summary card.
+- **Scenario tab:** *Quick rain* card (rain intensity, start, duration, flooding: set a storm with three sliders). Below it: load an example, list or delete changes, Run, read the summary card.
+- **Auto-run** (on by default): sudden scenarios re-run about 0.6 s after each change. Structural changes take minutes, so they still need the Run button.
 - **Click a road:** incident, closure, modify road or remove road. The "both directions" option applies the action to the twin link too.
 - **Click a junction:** signal cycle and green split, or start a new road from that junction. Signalised junctions are always shown; all junctions appear at zoom ≥ 15.
 - **Rain tab:** presets, drag the 30-min bars to paint rain, choose the flood model.

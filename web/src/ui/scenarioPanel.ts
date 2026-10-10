@@ -1,8 +1,9 @@
-import { state, isStructuralParam } from '../state';
+import { state, isStructuralScenario } from '../state';
 import type { Network } from '../network';
 import type { Scenario, Summary } from '../types';
 import { clear, fmt, h, icon, pct, signed } from './dom';
 import { toast } from './popups';
+import { quickRainCard } from './quickRain';
 
 export interface ScenarioPanelHooks {
   run: () => void;
@@ -78,6 +79,12 @@ export function scenarioPanel(net: Network, hooks: ScenarioPanelHooks): HTMLElem
     icon('trash'),
     h('span', 'Clear'),
   );
+  const autoBox = h('input', { type: 'checkbox', checked: state.autoRun, 'data-testid': 'auto-run' });
+  autoBox.addEventListener('change', () => {
+    state.autoRun = autoBox.checked;
+    state.emit('scenario');
+  });
+  const autoRun = h('label.auto-run', { title: 'Re-run automatically a moment after each change (not for structural changes, which take longer)' }, autoBox, 'Auto-run');
   const progress = h('div.progress', { hidden: true }, h('div.progress-bar'), h('div.progress-label'));
   const result = h('div.result-slot');
 
@@ -113,9 +120,9 @@ export function scenarioPanel(net: Network, hooks: ScenarioPanelHooks): HTMLElem
         ),
       );
     }
-    const structural = state.scenario.events.some((e) => net.describe(e).structural) || o.some(([k]) => isStructuralParam(k));
+    const structural = isStructuralScenario(net);
     modeHint.textContent = structural
-      ? 'Structural change: demand is re-planned and compared with a “control” re-run of the baseline (first time adds ~10 s).'
+      ? `Structural change: demand is re-planned and compared with a “control” re-run of the baseline (first time adds ~10 s).${state.autoRun ? ' Press Run when ready (auto-run skips structural changes).' : ''}`
       : state.scenario.events.length
         ? 'Sudden change: same trips as the baseline; drivers react en route. Compared with the baseline.'
         : '';
@@ -146,6 +153,7 @@ export function scenarioPanel(net: Network, hooks: ScenarioPanelHooks): HTMLElem
       h('strong', 'What-if sandbox. '),
       'Results come from a simplified model with synthetic demand (a 5% sample of estimated trips). Read them as qualitative, comparative indications — not forecasts.',
     ),
+    quickRainCard(),
     h('div.panel-row', presetSelect),
     field('Scenario', nameInput),
     description,
@@ -154,6 +162,7 @@ export function scenarioPanel(net: Network, hooks: ScenarioPanelHooks): HTMLElem
     overrides,
     modeHint,
     h('div.run-row', runBtn, shareBtn, clearBtn),
+    autoRun,
     progress,
     result,
   );

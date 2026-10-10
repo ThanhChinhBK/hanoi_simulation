@@ -26,7 +26,7 @@ export function mapLegend(): HTMLElement {
     });
     return h('label.check', cb, ` ${label}`);
   };
-  layerToggles.append(toggle('vehicles', 'Vehicles'), toggle('localAccess', 'Small streets (est.)'), toggle('flood', 'Flooding'), toggle('hotspots', 'Flood points'), toggle('nodes', 'Junctions'));
+  layerToggles.append(toggle('vehicles', 'Vehicles'), toggle('localAccess', 'Small streets (est.)'), toggle('metro', 'Metro'), toggle('metroPlanned', 'Planned metro'), toggle('flood', 'Flooding'), toggle('hotspots', 'Flood points'), toggle('nodes', 'Junctions'));
 
   const render = () => {
     const opts: { id: ViewMode; label: string; enabled: boolean }[] = [

@@ -14,6 +14,7 @@ import shutil
 
 from . import config
 from .flood import build_catchments, map_hotspots, rain_presets
+from . import metro
 from .network import build_network
 from .zones import build_zones
 
@@ -60,6 +61,10 @@ def main() -> None:
     (config.BUNDLES / f"{args.name}.report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     log.info("wrote %s (%.1f MB)", out, out.stat().st_size / 1e6)
+    try:
+        metro.main()
+    except RuntimeError as e:  # display-only layer: never block the bundle
+        log.warning("metro layer skipped: %s", e)
 
 
 if __name__ == "__main__":

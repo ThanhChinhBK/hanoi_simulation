@@ -5,6 +5,8 @@ import { congestionColor, diffColor, diffValue, ESTIMATE, GREEN, NEUTRAL, NO_DAT
 import { computeLinkStyle, localAccessFactor } from './linkStyle';
 import { buildTrips, type LngLat } from './trips';
 import { formatTime, parseTime } from './time';
+import { quickRainFromProfile, quickRainProfile } from './quickRain';
+import { hexColor, parseMetro } from './metro';
 import type { RunData, Scenario } from '../types';
 
 describe('scenario URL', () => {
@@ -148,5 +150,33 @@ describe('local-access estimate', () => {
     expect(off.widths[1]).toBe(1);
     const diff = computeLinkStyle({ ...base, mode: 'diff', reference: run, localAccess: true });
     expect([...diff.colors.subarray(4, 8)]).toEqual(NO_DATA);
+  });
+});
+
+describe('quick rain', () => {
+  it('round-trips a single burst and rejects other profiles', () => {
+    const q = { intensity: 80, startMs: parseTime('07:30'), durationMin: 45 };
+    const p = quickRainProfile(q);
+    expect(p).toEqual([{ at: '07:30', mm_per_hour: 80 }, { at: '08:15', mm_per_hour: 0 }]);
+    expect(quickRainFromProfile(p)).toEqual(q);
+    expect(quickRainProfile({ ...q, intensity: 0 })).toEqual([]);
+    expect(quickRainFromProfile([{ at: '07:00', mm_per_hour: 15 }, { at: '07:30', mm_per_hour: 80 }])).toBeNull();
+  });
+});
+
+describe('metro', () => {
+  it('parses lines and stations, planned lines drawn first and faded', () => {
+    const m = parseMetro({
+      features: [
+        { geometry: { type: 'MultiLineString', coordinates: [[[1, 1], [2, 2]], [[2, 2], [3, 3]]] }, properties: { kind: 'line', ref: 'T3', name: 'L3', status: 'operating', colour: '#d1427a' } },
+        { geometry: { type: 'MultiLineString', coordinates: [[[0, 0], [1, 0]]] }, properties: { kind: 'line', ref: 'T8', name: 'L8', status: 'planned', colour: '#7f6cc4' } },
+        { geometry: { type: 'Point', coordinates: [1, 1] }, properties: { kind: 'station', ref: 'T3', name: 'Cầu Giấy', status: 'operating', colour: '#d1427a' } },
+      ],
+    });
+    expect(m.lines.map((l) => l.ref)).toEqual(['T8', 'T3', 'T3']);
+    expect(m.lines[1].color).toEqual([209, 66, 122, 255]);
+    expect(m.lines[0].color[3]).toBeLessThan(255); // planned: slightly faded
+    expect(m.stations).toHaveLength(1);
+    expect(hexColor('bad')).toHaveLength(4);
   });
 });

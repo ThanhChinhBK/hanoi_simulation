@@ -1,5 +1,5 @@
 import './style.css';
-import { state } from './state';
+import { state, isStructuralScenario } from './state';
 import { EngineClient } from './engineClient';
 import { Network } from './network';
 import { MapView, type MapClick } from './map/mapView';
@@ -80,6 +80,10 @@ async function main() {
   state.ready = true;
 
   const view = new MapView(mapEl, net);
+  fetch(dataUrl('data/metro.geojson'))
+    .then((r) => (r.ok ? r.json() : null))
+    .then((fc) => fc && view.setMetro(fc))
+    .catch(() => console.warn('metro layer unavailable'));
   const popups = new Popups(view, net);
   const flyTo = (i: number) => {
     const ev = state.scenario.events[i];
@@ -122,7 +126,26 @@ async function main() {
       setPhase('error');
       state.emit('run');
     }
+    if (autoPending) {
+      autoPending = false;
+      scheduleAutoRun();
+    }
   };
+
+  // Auto-run: sudden scenarios take seconds, so re-run shortly after each edit.
+  let autoTimer: ReturnType<typeof setTimeout> | undefined;
+  let autoPending = false;
+  const scheduleAutoRun = () => {
+    clearTimeout(autoTimer);
+    if (!state.autoRun || !state.ready || isStructuralScenario(net)) return;
+    const empty = !state.scenario.events.length && !Object.keys(state.scenario.parameter_overrides ?? {}).length;
+    if (empty || (state.result && !state.stale)) return;
+    autoTimer = setTimeout(() => {
+      if (state.run.running) autoPending = true;
+      else void run();
+    }, 600);
+  };
+  state.on(['scenario'], scheduleAutoRun);
 
   const panelEls: Record<Tab, HTMLElement> = {
     scenario: scenarioPanel(net, { run, share, flyTo, showTab }),

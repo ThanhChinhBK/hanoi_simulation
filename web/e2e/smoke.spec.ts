@@ -84,3 +84,18 @@ test('scenario survives a URL round trip', async ({ page, context }) => {
   await expect(list).toContainText('New jobs');
   await expect(page2.locator('.override-box')).toContainText('population.scale = 1.1');
 });
+
+test('quick rain slider runs the scenario by itself and the metro is drawn', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('./');
+  await waitReady(page);
+  const slider = page.getByTestId('qr-intensity');
+  await slider.fill('80');
+  await slider.dispatchEvent('change');
+  await expect(page.getByTestId('event-list')).toContainText('Rain');
+  await expect(page.getByTestId('result-card')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('body')).toHaveAttribute('data-state', 'done');
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `${SHOTS}/quick-rain.png` });
+  expect(errors).toEqual([]);
+});

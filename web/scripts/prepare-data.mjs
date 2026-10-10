@@ -9,13 +9,14 @@ const repo = resolve(web, '..');
 const files = [
   { src: join(repo, 'data/bundles/hanoi-inner.json'), dst: join(web, 'public/data/hanoi-inner.json'), hint: 'build it with the pipeline (see the repo README: pipeline → data/bundles/hanoi-inner.json)' },
   { src: join(repo, 'data/out/routes.bin'), dst: join(web, 'public/data/routes.bin'), hint: 'compute it with the CLI baseline run (see the repo README: hanoi-sim baseline … writes data/out/routes.bin)' },
+  { src: join(repo, 'data/bundles/metro.geojson'), dst: join(web, 'public/data/metro.geojson'), hint: 'optional (metro map layer): cd pipeline && uv run python -m hanoi_pipeline.metro', optional: true },
 ];
 
 let failed = false;
 for (const f of files) {
   if (!existsSync(f.src)) {
     console.error(`prepare-data: missing ${f.src}\n  → ${f.hint}`);
-    failed = true;
+    if (!f.optional) failed = true;
     continue;
   }
   mkdirSync(dirname(f.dst), { recursive: true });
