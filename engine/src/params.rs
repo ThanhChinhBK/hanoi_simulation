@@ -645,6 +645,19 @@ impl Default for Params {
             "Capacity multiplier in heavy rain (without flooding).",
         );
 
+        p.add(
+            "accidents.rain_multiplier",
+            1.7,
+            "factor",
+            (1.0, 10.0),
+            Rain,
+            (
+                "literature (Qiu & Nixon 2008 meta-analysis: rain raises crash rates ~70%)",
+                Medium,
+            ),
+            "Accident rate multiplier on roads under heavy rain (linear below rain.heavy_mm_h); used by the accidents event.",
+        );
+
         // ------------------------------------------------------------- flood
         p.add(
             "flood.step_min",

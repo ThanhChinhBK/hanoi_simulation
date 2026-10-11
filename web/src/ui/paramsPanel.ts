@@ -1,15 +1,16 @@
+import { lang, t } from '../i18n';
 import { state, isStructuralParam } from '../state';
 import type { Param } from '../types';
 import { clear, h, icon } from './dom';
 
 const CATEGORY_LABELS: Record<string, string> = {
-  demand: 'Demand (who travels, when, how)',
-  network: 'Road network (capacity, speeds)',
-  simulation: 'Simulation & re-planning',
-  signals: 'Traffic signals',
-  rain: 'Rain effects',
-  flood: 'Flooding',
-  behaviour: 'Driver behaviour',
+  demand: t('Demand (who travels, when, how)'),
+  network: t('Road network (capacity, speeds)'),
+  simulation: t('Simulation & re-planning'),
+  signals: t('Traffic signals'),
+  rain: t('Rain effects'),
+  flood: t('Flooding'),
+  behaviour: t('Driver behaviour'),
 };
 
 export const isAssumption = (p: Param) => /^assumption/i.test(p.source.trim());
@@ -23,7 +24,7 @@ function stepFor(p: Param): number {
 }
 
 export function paramsPanel(): HTMLElement {
-  const search = h('input', { type: 'search', placeholder: 'Search parameters, sources…', 'aria-label': 'Search parameters' });
+  const search = h('input', { type: 'search', placeholder: t('Search parameters, sources…'), 'aria-label': t('Search parameters') });
   const onlyModified = h('input', { type: 'checkbox' });
   const body = h('div.param-groups');
   const count = h('span.muted');
@@ -38,7 +39,7 @@ export function paramsPanel(): HTMLElement {
       },
     },
     icon('reset', 14),
-    ' Reset all',
+    ` ${t('Reset all')}`,
   );
 
   const row = (p: Param) => {
@@ -49,7 +50,7 @@ export function paramsPanel(): HTMLElement {
     input.addEventListener('change', () => {
       const v = Number(input.value);
       if (input.value === '' || !Number.isFinite(v) || v < p.min || v > p.max) {
-        err.textContent = `Allowed range ${p.min} – ${p.max}`;
+        err.textContent = t('Allowed range {min} – {max}', { min: p.min, max: p.max });
         input.classList.add('invalid');
         return;
       }
@@ -61,8 +62,8 @@ export function paramsPanel(): HTMLElement {
       h(
         'div.param-head',
         h('code.param-key', p.key),
-        modified ? h('span.badge.badge-mod', { title: `baseline: ${p.value}` }, 'modified') : null,
-        isStructuralParam(p.key) ? h('span.badge.badge-structural', { title: 'Changing it re-plans demand and compares with a control run' }, 'structural') : null,
+        modified ? h('span.badge.badge-mod', { title: t('baseline: {v}', { v: p.value }) }, t('modified')) : null,
+        isStructuralParam(p.key) ? h('span.badge.badge-structural', { title: t('Changing it re-plans demand and compares with a control run') }, t('structural')) : null,
       ),
       h('div.param-desc', p.description),
       h(
@@ -71,14 +72,14 @@ export function paramsPanel(): HTMLElement {
         h('span.unit', p.unit),
         h('span.range.muted', `${p.min} – ${p.max}`),
         modified
-          ? h('button.icon-btn', { type: 'button', title: `Reset to ${p.value}`, 'aria-label': `Reset ${p.key}`, onclick: () => state.setOverride(p.key, null) }, icon('reset', 14))
+          ? h('button.icon-btn', { type: 'button', title: t('Reset to {v}', { v: p.value }), 'aria-label': t('Reset {key}', { key: p.key }), onclick: () => state.setOverride(p.key, null) }, icon('reset', 14))
           : null,
       ),
       err,
       h(
         'div.param-src',
-        h(`span.badge.conf-${p.confidence}`, { title: 'Confidence in this value' }, p.confidence),
-        h(isAssumption(p) ? 'span.badge.prov-assumption' : 'span.badge.prov-data', isAssumption(p) ? 'assumption' : 'data'),
+        h(`span.badge.conf-${p.confidence}`, { title: t('Confidence in this value') }, t(p.confidence)),
+        h(isAssumption(p) ? 'span.badge.prov-assumption' : 'span.badge.prov-data', isAssumption(p) ? t('assumption') : t('data')),
         h('span.src-text', p.source),
       ),
     );
@@ -109,13 +110,13 @@ export function paramsPanel(): HTMLElement {
         h(
           'details.param-group',
           { open: !!q || onlyModified.checked || nMod > 0 },
-          h('summary', CATEGORY_LABELS[c] ?? c, h('span.muted', ` (${list.length})`), nMod ? h('span.badge.badge-mod', `${nMod} modified`) : null),
+          h('summary', CATEGORY_LABELS[c] ?? c, h('span.muted', ` (${list.length})`), nMod ? h('span.badge.badge-mod', t('{n} modified', { n: nMod })) : null),
           list.map(row),
         ),
       );
     }
     const n = Object.keys(state.scenario.parameter_overrides ?? {}).length;
-    count.textContent = `${params.length} of ${Object.keys(state.params).length} shown · ${n} modified`;
+    count.textContent = t('{shown} of {total} shown · {n} modified', { shown: params.length, total: Object.keys(state.params).length, n });
     resetAll.disabled = n === 0;
     if (focusKey) body.querySelector<HTMLInputElement>(`.param[data-key="${CSS.escape(focusKey)}"] input`)?.focus();
   };
@@ -128,14 +129,15 @@ export function paramsPanel(): HTMLElement {
     'section.panel',
     h(
       'p.hint',
-      'Every model parameter, with its unit, source and our confidence. ',
-      h('span.badge.prov-data', 'data'),
-      ' values come from measurements or literature; ',
-      h('span.badge.prov-assumption', 'assumption'),
-      ' values are modelling guesses. Changes become parameter_overrides in the scenario.',
+      `${t('Every model parameter, with its unit, source and our confidence.')} `,
+      h('span.badge.prov-data', t('data')),
+      ` ${t('values come from measurements or literature;')} `,
+      h('span.badge.prov-assumption', t('assumption')),
+      ` ${t('values are modelling guesses. Changes become parameter_overrides in the scenario.')}`,
+      lang === 'vi' ? ` ${t('Parameter descriptions and sources are in English.')}` : '',
     ),
     search,
-    h('div.param-toolbar', h('label.check', onlyModified, ' Modified only'), count, resetAll),
+    h('div.param-toolbar', h('label.check', onlyModified, ` ${t('Modified only')}`), count, resetAll),
     body,
   );
 }

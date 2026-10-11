@@ -1,6 +1,9 @@
 import type { Bundle, RunMeta, ScenarioEvent } from './types';
 import type { LngLat } from './logic/trips';
 import { fmt } from './ui/dom';
+import { t } from './i18n';
+import { roadClassName } from './logic/roadClass';
+import { areaKm2, centroid, latLonToLngLat } from './logic/zones';
 
 /** Lookups over the city bundle (twins, labels, geometry of added links). */
 export class Network {
@@ -47,8 +50,8 @@ export class Network {
 
   linkName(link: number): string {
     const l = this.bundle.links[link];
-    if (!l) return this.added.has(link) ? `new road #${link}` : `link ${link}`;
-    return l.name || `unnamed ${l.road_class.replace('_', ' ')}`;
+    if (!l) return this.added.has(link) ? t('new road #{id}', { id: link }) : t('link {id}', { id: link });
+    return l.name || t('unnamed {cls}', { cls: roadClassName(l.road_class) });
   }
 
   nodeName(node: number): string {
@@ -57,7 +60,7 @@ export class Network {
       if ((l.to === node || l.from === node) && l.name) names.add(l.name);
     });
     const list = [...names].slice(0, 2);
-    return list.length ? list.join(' × ') : `node ${node}`;
+    return list.length ? list.join(' × ') : t('node {id}', { id: node });
   }
 
   /** Nearest node to a point (simple scan; 8k nodes). */
@@ -81,36 +84,43 @@ export class Network {
       case 'rain': {
         const peak = Math.max(0, ...ev.profile.map((p) => p.mm_per_hour));
         const first = ev.profile.find((p) => p.mm_per_hour > 0)?.at ?? '–';
-        return { title: 'Rain', detail: `peak ${fmt(peak)} mm/h from ${first}, flood model: ${ev.flood_model ?? 'none'}`, structural: false };
+        const where = ev.area ? t('zone {a} km²', { a: fmt(areaKm2(latLonToLngLat(ev.area)), 1) }) : t('citywide');
+        return { title: ev.label || (ev.area ? t('Rain zone') : t('Citywide rain')), detail: t('{where} · peak {peak} mm/h from {first}', { where, peak: fmt(peak), first }), structural: false };
       }
+      case 'accidents':
+        return {
+          title: t('Random accidents'),
+          detail: `${t('{n} per hour · {d} min each · capacity ×{c}', { n: fmt(ev.per_hour, 1), d: ev.duration_min ?? 45, c: ev.capacity_factor ?? 0.4 })}${ev.from || ev.to ? ` · ${ev.from ?? t('start')}–${ev.to ?? t('end')}` : ''}`,
+          structural: false,
+        };
       case 'incident':
-        return { title: 'Incident', detail: `${links([ev.link])} · ${ev.from}–${ev.to} · capacity ×${ev.capacity_factor}`, structural: false };
+        return { title: t('Incident'), detail: `${links([ev.link])} · ${ev.from}–${ev.to} · ${t('capacity ×{c}', { c: ev.capacity_factor })}`, structural: false };
       case 'signal':
         return {
-          title: 'Signal timing',
-          detail: `${this.nodeName(ev.node)} · cycle ${ev.cycle_s} s · NS ${Math.round(ev.green_split.north_south * 100)}% / EW ${Math.round(ev.green_split.east_west * 100)}%`,
+          title: t('Signal timing'),
+          detail: `${this.nodeName(ev.node)} · ${t('cycle {c} s · NS {ns}% / EW {ew}%', { c: ev.cycle_s, ns: Math.round(ev.green_split.north_south * 100), ew: Math.round(ev.green_split.east_west * 100) })}`,
           structural: false,
         };
       case 'closure':
-        return { title: 'Closure', detail: `${links(ev.links)} · ${ev.from ?? '00:00'}–${ev.to ?? 'end of day'}`, structural: false };
+        return { title: t('Closure'), detail: `${links(ev.links)} · ${ev.from ?? '00:00'}–${ev.to ?? t('end of day')}`, structural: false };
       case 'event':
-        return { title: 'Big event', detail: `${fmt(ev.extra_trips)} people arriving ${ev.arrive_between[0]}–${ev.arrive_between[1]}`, structural: false };
+        return { title: t('Big event'), detail: t('{n} people arriving {from}–{to}', { n: fmt(ev.extra_trips), from: ev.arrive_between[0], to: ev.arrive_between[1] }), structural: false };
       case 'add_road':
         return {
-          title: 'New road',
-          detail: `${this.nodeName(ev.from_node)} → ${this.nodeName(ev.to_node)} · ${ev.road_class}, ${ev.lanes ?? 'default'} lanes, ${ev.oneway ? 'one-way' : 'two-way'}`,
+          title: t('New road'),
+          detail: `${this.nodeName(ev.from_node)} → ${this.nodeName(ev.to_node)} · ${roadClassName(ev.road_class)}, ${t('{n} lanes', { n: ev.lanes ?? t('default') })}, ${ev.oneway ? t('one-way') : t('two-way')}`,
           structural: true,
         };
       case 'remove_road':
-        return { title: 'Road removed', detail: links(ev.links), structural: true };
+        return { title: t('Road removed'), detail: links(ev.links), structural: true };
       case 'modify_road': {
-        const parts = [ev.lanes !== undefined && `${ev.lanes} lanes`, ev.maxspeed_kmh !== undefined && `${ev.maxspeed_kmh} km/h`, ev.road_class].filter(Boolean);
-        return { title: 'Road modified', detail: `${links([ev.link])} → ${parts.join(', ')}`, structural: true };
+        const parts = [ev.lanes !== undefined && t('{n} lanes', { n: ev.lanes }), ev.maxspeed_kmh !== undefined && `${ev.maxspeed_kmh} km/h`, ev.road_class && roadClassName(ev.road_class)].filter(Boolean);
+        return { title: t('Road modified'), detail: `${links([ev.link])} → ${parts.join(', ')}`, structural: true };
       }
       case 'housing':
-        return { title: 'New housing', detail: `${fmt(ev.population)} residents`, structural: true };
+        return { title: t('New housing'), detail: t('{n} residents', { n: fmt(ev.population) }), structural: true };
       case 'jobs':
-        return { title: 'New jobs', detail: `${fmt(ev.jobs)} jobs`, structural: true };
+        return { title: t('New jobs'), detail: t('{n} jobs', { n: fmt(ev.jobs) }), structural: true };
     }
   }
 
@@ -132,6 +142,8 @@ export class Network {
       case 'housing':
       case 'jobs':
         return [ev.at[1], ev.at[0]];
+      case 'rain':
+        return ev.area && ev.area.length >= 3 ? centroid(latLonToLngLat(ev.area)) : null;
       default:
         return null;
     }

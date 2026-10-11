@@ -1,4 +1,4 @@
-import type { ParamMap, RunData, RunMeta, Trace, WireRun, WorkerRequest, WorkerResponse } from './types';
+import type { ParamMap, SignalPlan, RunData, RunMeta, Trace, WireRun, WorkerRequest, WorkerResponse } from './types';
 
 export type ProgressFn = (stage: string, fraction: number) => void;
 
@@ -24,7 +24,7 @@ export class EngineClient {
   private nextId = 1;
   private pending = new Map<number, { resolve: (r: RunResponse) => void; reject: (e: Error) => void; progress?: ProgressFn }>();
   private loadProgress?: ProgressFn;
-  private loadResolve?: (r: { params: ParamMap; baseline: RunData }) => void;
+  private loadResolve?: (r: { params: ParamMap; signalPlans: SignalPlan[]; baseline: RunData }) => void;
   private loadReject?: (e: Error) => void;
 
   constructor() {
@@ -44,7 +44,7 @@ export class EngineClient {
 
   load(bundleUrl: string, routesUrl: string, progress?: ProgressFn) {
     this.loadProgress = progress;
-    return new Promise<{ params: ParamMap; baseline: RunData }>((resolve, reject) => {
+    return new Promise<{ params: ParamMap; signalPlans: SignalPlan[]; baseline: RunData }>((resolve, reject) => {
       this.loadResolve = resolve;
       this.loadReject = reject;
       this.send({ type: 'load', bundleUrl, routesUrl });
@@ -63,7 +63,7 @@ export class EngineClient {
     switch (m.type) {
       case 'ready': {
         const params = (JSON.parse(m.params) as { params: ParamMap }).params;
-        this.loadResolve?.({ params, baseline: unwire(m.baseline) });
+        this.loadResolve?.({ params, signalPlans: JSON.parse(m.signalPlans) as SignalPlan[], baseline: unwire(m.baseline) });
         break;
       }
       case 'progress':

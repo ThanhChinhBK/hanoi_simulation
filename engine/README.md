@@ -101,14 +101,25 @@ The baseline runs `replan.iterations` (50) offline; its routes ship as `routes.b
   linearly to a stall factor at the motorbike stall depth; closed above a closure depth.
   Bridges never flood. Rain alone reduces speed/capacity network-wide.
 - Behaviour: in heavy rain some trips are cancelled or delayed.
+- Rain zones: a rain event may carry `area` (a `[lat, lon]` polygon, ≥ 3 points). It then
+  only rains inside the polygon: links (by midpoint), hotspots, catchments and trip
+  origins outside see no rain. Several rain events may overlap (the heaviest applies);
+  they must share one `flood_model`. `meta.rain_mm_h` is the city-wide maximum.
+
+**Accidents**: an `accidents` event (`per_hour`, `duration_min`, `capacity_factor`,
+optional `from`/`to`, default departure window) draws random accidents from the
+scenario seed, on main roads, weighted by length × capacity. The rate rises up to
+`accidents.rain_multiplier` (1.7×) where it rains heavily. They act as incidents and
+are listed in `RunOutput.accidents`.
 
 **Signals**: default plan per signalised node: fixed cycle, green split by approach
 capacity (NS vs EW by approach bearing). Scenario overrides set cycle and split.
+`Engine::signal_plans()` (WASM `signalPlans()`) lists the defaults.
 
 ## Scenarios
 
 `Scenario` JSON (examples in `../scenarios/`) mixes:
-- *sudden* events — rain, incident, signal, closure, big event: one run from the
+- *sudden* events — rain (citywide or zone), accidents, incident, signal, closure, big event: one run from the
   baseline routes with en-route rerouting. Compared with the **baseline**.
 - *structural* edits — `add_road`, `remove_road`, `modify_road`, `housing`, `jobs`, and
   structural parameter changes (population scale, trip rates…): demand and network are

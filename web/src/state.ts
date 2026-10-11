@@ -1,4 +1,4 @@
-import type { Bundle, ParamMap, RunData, Scenario, ScenarioEvent } from './types';
+import type { Bundle, ParamMap, RunData, Scenario, ScenarioEvent, SignalPlan } from './types';
 
 export type ViewMode = 'diff' | 'congestion' | 'congestion-ref';
 export type Smoothing = 0 | 1 | 'all';
@@ -8,9 +8,11 @@ export type Tool =
   | { kind: 'add-road'; fromNode?: number }
   | { kind: 'housing' }
   | { kind: 'jobs' }
-  | { kind: 'event' };
+  | { kind: 'event' }
+  /** polygon being drawn, [lon, lat] vertices */
+  | { kind: 'rain-zone'; points: [number, number][] };
 
-export type Topic = 'scenario' | 'result' | 'time' | 'view' | 'tool' | 'run' | 'ready' | 'selection';
+export type Topic = 'scenario' | 'result' | 'time' | 'view' | 'tool' | 'run' | 'ready' | 'selection' | 'focus';
 
 export interface RunStatus {
   running: boolean;
@@ -23,6 +25,8 @@ export interface RunStatus {
 export interface Selection {
   link?: number;
   node?: number;
+  /** index of a scenario event (rain zone, marker) */
+  event?: number;
 }
 
 export interface BuildDefaults {
@@ -41,6 +45,8 @@ export class AppState {
   params!: ParamMap;
   baseline!: RunData;
   control?: RunData;
+  /** default plan of every signalised junction, by node */
+  signalPlans = new Map<number, SignalPlan>();
   ready = false;
 
   scenario: Scenario = { events: [] };
@@ -59,8 +65,10 @@ export class AppState {
   tool: Tool = { kind: 'select' };
   selection: Selection = {};
   run: RunStatus = { running: false, stage: '', fraction: 0 };
-  /** re-run sudden scenarios automatically after each edit */
-  autoRun = true;
+  /** re-run sudden scenarios automatically after each edit ("Live update") */
+  autoRun = false;
+  /** scenario event the Setup panel should reveal (set with `focusEvent`) */
+  focus?: number;
 
   build: BuildDefaults = {
     roadClass: 'primary',
@@ -121,6 +129,18 @@ export class AppState {
     if (ev) events.push(ev);
     this.scenario = { ...this.scenario, events };
     this.emit('scenario');
+  }
+
+  updateEvent(index: number, ev: ScenarioEvent) {
+    const events = this.scenario.events.slice();
+    events[index] = ev;
+    this.scenario = { ...this.scenario, events };
+    this.emit('scenario');
+  }
+
+  focusEvent(index: number) {
+    this.focus = index;
+    this.emit('focus');
   }
 
   removeEvent(index: number) {

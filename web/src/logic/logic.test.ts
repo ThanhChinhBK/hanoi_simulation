@@ -7,6 +7,8 @@ import { buildTrips, type LngLat } from './trips';
 import { formatTime, parseTime } from './time';
 import { quickRainFromProfile, quickRainProfile } from './quickRain';
 import { hexColor, parseMetro } from './metro';
+import { greensToPlan, planToGreens } from './signals';
+import { areaKm2, centroid, latLonToLngLat, lngLatToLatLon, rainWord } from './zones';
 import type { RunData, Scenario } from '../types';
 
 describe('scenario URL', () => {
@@ -178,5 +180,31 @@ describe('metro', () => {
     expect(m.lines[0].color[3]).toBeLessThan(255); // planned: slightly faded
     expect(m.stations).toHaveLength(1);
     expect(hexColor('bad')).toHaveLength(4);
+  });
+});
+
+describe('signal greens', () => {
+  it('converts between green seconds and cycle/split', () => {
+    const g = planToGreens(120, { north_south: 0.6, east_west: 0.4 }, 12);
+    expect(g).toEqual({ ns: 65, ew: 43 });
+    const p = greensToPlan({ ns: 60, ew: 30 }, 12);
+    expect(p.cycle_s).toBe(102);
+    expect(p.green_split.north_south).toBeCloseTo(2 / 3, 3);
+    expect(p.green_split.north_south + p.green_split.east_west).toBeCloseTo(1, 6);
+    expect(planToGreens(p.cycle_s, p.green_split, 12)).toEqual({ ns: 60, ew: 30 });
+  });
+});
+
+describe('rain zones', () => {
+  it('computes centroid, area and converts coordinates', () => {
+    const sq: LngLat[] = [[105.8, 21.0], [105.81, 21.0], [105.81, 21.01], [105.8, 21.01]];
+    const c = centroid(sq);
+    expect(c[0]).toBeCloseTo(105.805, 6);
+    expect(c[1]).toBeCloseTo(21.005, 6);
+    expect(areaKm2(sq)).toBeGreaterThan(1.1);
+    expect(areaKm2(sq)).toBeLessThan(1.2);
+    expect(latLonToLngLat(lngLatToLatLon(sq))).toEqual(sq);
+    expect(rainWord(0)).toBe('none');
+    expect(rainWord(80)).toBe('very heavy');
   });
 });

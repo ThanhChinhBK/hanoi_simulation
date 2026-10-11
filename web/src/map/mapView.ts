@@ -6,7 +6,7 @@ import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 // MapLibre v6 locates its worker relative to its own module URL, which breaks once bundled.
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 import { MapboxOverlay } from '@deck.gl/mapbox';
-import { PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
+import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import { PathStyleExtension, type PathStyleExtensionProps } from '@deck.gl/extensions';
 import { TripsLayer } from '@deck.gl/geo-layers';
 import type { Layer, PickingInfo } from '@deck.gl/core';
@@ -16,7 +16,11 @@ import { buildTrips, type LngLat, type TripPath } from '../logic/trips';
 import { computeLinkStyle, aggTt, binRange, localAccessFactor, type LinkStyle } from '../logic/linkStyle';
 import { parseTime, formatTime } from '../logic/time';
 import { fmt } from '../ui/dom';
-import type { Hotspot, RunData, ScenarioEvent } from '../types';
+import type { Accident, Hotspot, RainPoint, RunData, ScenarioEvent } from '../types';
+import { rainAt } from '../logic/rain';
+import { latLonToLngLat } from '../logic/zones';
+import { t, tn } from '../i18n';
+import { roadClassName } from '../logic/roadClass';
 import { parseMetro, type Metro, type MetroLine, type MetroStation } from '../logic/metro';
 
 export interface LinkDatum {
@@ -48,14 +52,31 @@ interface MarkerDatum {
 
 type Color = [number, number, number, number];
 
-export type PickKind = 'link' | 'node' | 'hotspot' | 'marker';
+export type PickKind = 'link' | 'node' | 'hotspot' | 'marker' | 'zone' | 'accident';
 
 export interface MapClick {
   lngLat: LngLat;
   kind?: PickKind;
   id?: number;
   hotspot?: Hotspot;
+  accident?: Accident;
 }
+
+interface ZoneDatum {
+  index: number;
+  ring: LngLat[];
+  profile: RainPoint[];
+  label: string;
+}
+
+/** Scenario layer colours (mirror the CSS tokens --c-rain, --c-signal, … in style.css). */
+export const LAYER_RGB = {
+  rain: [2, 132, 199],
+  signal: [217, 119, 6],
+  event: [124, 58, 237],
+  accident: [220, 38, 38],
+  build: [15, 118, 110],
+} as const;
 
 const BASEMAP = 'https://tiles.openfreemap.org/styles/positron';
 const BLANK_STYLE: StyleSpecification = {
@@ -73,18 +94,18 @@ export const VEHICLE_COLORS: Record<number, [number, number, number]> = {
 export const VEHICLE_NAMES: Record<number, string> = { 0: 'motorbike', 1: 'car', 2: 'bus', 3: 'other' };
 
 export const EDIT_COLORS: Record<string, Color> = {
-  closure: [124, 58, 237, 150],
-  incident: [245, 158, 11, 170],
+  closure: [127, 29, 29, 170],
+  incident: [220, 38, 38, 150],
   remove_road: [30, 30, 30, 140],
-  modify_road: [13, 148, 136, 160],
-  add_road: [37, 99, 235, 200],
+  modify_road: [15, 118, 110, 160],
+  add_road: [15, 118, 110, 210],
 };
 
 const MARKER_COLORS: Record<string, Color> = {
-  housing: [16, 185, 129, 235],
-  jobs: [234, 179, 8, 235],
-  event: [219, 39, 119, 235],
-  signal: [14, 165, 233, 235],
+  housing: [15, 118, 110, 235],
+  jobs: [13, 148, 136, 235],
+  event: [124, 58, 237, 235],
+  signal: [217, 119, 6, 235],
 };
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -110,6 +131,8 @@ export class MapView {
   };
   private zoom = 13;
   private metro: Metro = { lines: [], stations: [] };
+  /** pointer position while drawing a polygon (rubber band) */
+  private cursor: LngLat | null = null;
   onClick: (c: MapClick) => void = () => {};
 
   constructor(container: HTMLElement, private net: Network) {
@@ -129,8 +152,24 @@ export class MapView {
       attributionControl: { compact: true, customAttribution: attribution },
       maxPitch: 0,
       dragRotate: false,
+      locale: {
+        'NavigationControl.ZoomIn': t('Zoom in'),
+        'NavigationControl.ZoomOut': t('Zoom out'),
+        'GeolocateControl.FindMyLocation': t('Find my location'),
+        'GeolocateControl.LocationNotAvailable': t('Location not available'),
+        'AttributionControl.ToggleAttribution': t('Toggle attribution'),
+      },
     });
     this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    this.map.addControl(
+      new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: true,
+        showAccuracyCircle: true,
+        fitBoundsOptions: { maxZoom: 15 },
+      }),
+      'top-right',
+    );
     this.map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
     // the container may not have its final size at construction time
     requestAnimationFrame(() => {
@@ -161,6 +200,11 @@ export class MapView {
       const changed = z >= 15 !== this.zoom >= 15 || z >= 13 !== this.zoom >= 13;
       this.zoom = z;
       if (changed) this.render();
+    });
+    this.map.on('mousemove', (e) => {
+      if (state.tool.kind !== 'rain-zone') return;
+      this.cursor = [e.lngLat.lng, e.lngLat.lat];
+      this.render();
     });
     this.allNodes = net.bundle.nodes.map((n, i) => ({ i, pos: [n.lon, n.lat], signal: n.signal }));
     this.signalNodes = this.allNodes.filter((n) => n.signal);
@@ -252,11 +296,11 @@ export class MapView {
       if (ev.type === 'closure' || ev.type === 'remove_road') ev.links.forEach((l) => pushLink(l, ev.type));
       if (ev.type === 'incident' || ev.type === 'modify_road') pushLink(ev.link, ev.type);
       if (ev.type === 'add_road') edits.push({ path: [this.net.nodePos(ev.from_node), this.net.nodePos(ev.to_node)], color: EDIT_COLORS.add_road });
-      if (ev.type === 'housing') markers.push({ pos: [ev.at[1], ev.at[0]], color: MARKER_COLORS.housing, label: `+${fmt(ev.population)} residents`, index });
-      if (ev.type === 'jobs') markers.push({ pos: [ev.at[1], ev.at[0]], color: MARKER_COLORS.jobs, label: `+${fmt(ev.jobs)} jobs`, index });
+      if (ev.type === 'housing') markers.push({ pos: [ev.at[1], ev.at[0]], color: MARKER_COLORS.housing, label: t('+{n} residents', { n: fmt(ev.population) }), index });
+      if (ev.type === 'jobs') markers.push({ pos: [ev.at[1], ev.at[0]], color: MARKER_COLORS.jobs, label: t('+{n} jobs', { n: fmt(ev.jobs) }), index });
       if (ev.type === 'event')
-        markers.push({ pos: [ev.destination[1], ev.destination[0]], color: MARKER_COLORS.event, label: `Event: ${fmt(ev.extra_trips)} people`, index });
-      if (ev.type === 'signal') markers.push({ pos: this.net.nodePos(ev.node), color: MARKER_COLORS.signal, label: `Signal ${ev.cycle_s}s`, index });
+        markers.push({ pos: [ev.destination[1], ev.destination[0]], color: MARKER_COLORS.event, label: t('Event: {n} people', { n: fmt(ev.extra_trips) }), index });
+      if (ev.type === 'signal') markers.push({ pos: this.net.nodePos(ev.node), color: MARKER_COLORS.signal, label: t('Signal {n}s', { n: ev.cycle_s }), index });
     });
     if (state.tool.kind === 'add-road' && state.tool.fromNode !== undefined)
       markers.push({ pos: this.net.nodePos(state.tool.fromNode), color: [37, 99, 235, 255], label: 'A', index: -1 });
@@ -269,6 +313,7 @@ export class MapView {
     const t = (state.time - state.window.start_ms) / 1000;
     const style = this.linkStyle();
     const { edits, markers } = this.scenarioOverlays();
+    const [zoneFill, ...zoneLabels] = this.zoneLayers();
     const layers: Layer[] = [];
     layers.push(
       new PathLayer<{ path: LngLat[]; color: Color }>({
@@ -348,6 +393,7 @@ export class MapView {
       );
     }
     layers.push(...this.metroLayers());
+    if (zoneFill) layers.push(zoneFill);
     const showAll = state.tool.kind === 'add-road' || (state.layers.nodes && this.zoom >= 15);
     const nodes = showAll ? this.allNodes : state.layers.nodes ? this.signalNodes : [];
     layers.push(
@@ -410,7 +456,126 @@ export class MapView {
         fontWeight: 600,
       }),
     );
+    layers.push(...zoneLabels, ...this.accidentLayers(), ...this.draftLayers());
     this.overlay.setProps({ layers });
+  }
+
+  private zoneLayers(): Layer[] {
+    const zones: ZoneDatum[] = [];
+    state.scenario.events.forEach((ev, index) => {
+      if (ev.type === 'rain' && ev.area && ev.area.length >= 3) zones.push({ index, ring: latLonToLngLat(ev.area), profile: ev.profile, label: ev.label ?? t('Rain zone') });
+    });
+    if (!zones.length) return [];
+    const [r, g, b] = LAYER_RGB.rain;
+    const tMin = state.time / 60_000;
+    const sel = state.selection.event;
+    return [
+      new PolygonLayer<ZoneDatum>({
+        id: 'rain-zones',
+        data: zones,
+        getPolygon: (d) => d.ring,
+        getFillColor: (d) => [r, g, b, Math.round(50 + Math.min(1, rainAt(d.profile, tMin) / 80) * 100)],
+        getLineColor: (d) => [r, g, b, d.index === sel ? 255 : 230],
+        getLineWidth: (d) => (d.index === sel ? 4.5 : 3),
+        lineWidthUnits: 'pixels',
+        stroked: true,
+        filled: true,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [r, g, b, 60],
+        updateTriggers: { getFillColor: Math.floor(tMin), getLineColor: sel, getLineWidth: sel },
+      }),
+      new TextLayer<ZoneDatum>({
+        id: 'rain-zone-labels',
+        data: zones,
+        getPosition: (d) => d.ring.reduce((a, p) => (p[1] > a[1] ? p : a), d.ring[0]),
+        getText: (d) => `${d.label} · ${rainAt(d.profile, tMin)} mm/h`,
+        getSize: 12,
+        getColor: [7, 89, 133, 255],
+        getPixelOffset: [0, -12],
+        background: true,
+        getBackgroundColor: [255, 255, 255, 230],
+        backgroundPadding: [4, 2],
+        fontFamily: 'system-ui, sans-serif',
+        fontWeight: 600,
+        characterSet: 'auto',
+        updateTriggers: { getText: Math.floor(tMin) },
+      }),
+    ];
+  }
+
+  private accidentLayers(): Layer[] {
+    const acc = state.result?.meta.accidents ?? [];
+    if (!acc.length) return [];
+    const t = state.time;
+    const [r, g, b] = LAYER_RGB.accident;
+    return [
+      new ScatterplotLayer<Accident>({
+        id: 'accidents',
+        data: acc,
+        getPosition: (d) => this.net.midpoint(d.link),
+        getRadius: (d) => (t >= d.from_ms && t < d.to_ms ? 8 : 4),
+        radiusUnits: 'pixels',
+        getFillColor: (d) => (t >= d.from_ms && t < d.to_ms ? [r, g, b, 245] : [255, 255, 255, 200]),
+        getLineColor: (d) => (t >= d.from_ms && t < d.to_ms ? [255, 255, 255, 255] : [r, g, b, 150]),
+        lineWidthMinPixels: 2,
+        stroked: true,
+        pickable: true,
+        updateTriggers: { getRadius: Math.floor(t / 60_000), getFillColor: Math.floor(t / 60_000), getLineColor: Math.floor(t / 60_000) },
+      }),
+    ];
+  }
+
+  private draftLayers(): Layer[] {
+    if (state.tool.kind !== 'rain-zone') return [];
+    const pts = state.tool.points as LngLat[];
+    const [r, g, b] = LAYER_RGB.rain;
+    const band = this.cursor && pts.length ? [...pts, this.cursor] : pts;
+    const layers: Layer[] = [];
+    if (pts.length >= 2 || (pts.length && this.cursor))
+      layers.push(
+        new PolygonLayer<LngLat[]>({
+          id: 'draft-fill',
+          data: band.length >= 3 ? [band] : [],
+          getPolygon: (d) => d,
+          getFillColor: [r, g, b, 70],
+          stroked: false,
+        }),
+        new PathLayer<LngLat[]>({
+          id: 'draft-casing',
+          data: [band],
+          getPath: (d) => d,
+          getColor: [255, 255, 255, 230],
+          getWidth: 7,
+          widthUnits: 'pixels',
+          capRounded: true,
+          jointRounded: true,
+        }),
+        new PathLayer<LngLat[], PathStyleExtensionProps<LngLat[]>>({
+          id: 'draft-line',
+          data: [band],
+          getPath: (d) => d,
+          getColor: [r, g, b, 255],
+          getWidth: 3,
+          widthUnits: 'pixels',
+          getDashArray: [4, 2],
+          extensions: DASH_EXT,
+        }),
+      );
+    layers.push(
+      new ScatterplotLayer<{ p: LngLat; first: boolean }>({
+        id: 'draft-vertices',
+        data: pts.map((p, i) => ({ p, first: i === 0 })),
+        getPosition: (d) => d.p,
+        getRadius: (d) => (d.first && pts.length >= 3 ? 9 : 6),
+        radiusUnits: 'pixels',
+        getFillColor: (d) => (d.first ? [255, 255, 255, 255] : [r, g, b, 255]),
+        getLineColor: (d) => (d.first ? [r, g, b, 255] : [255, 255, 255, 255]),
+        lineWidthMinPixels: 2.5,
+        stroked: true,
+      }),
+    );
+    return layers;
   }
 
   /** Metro lines/stations (display only; rail is not simulated). */
@@ -493,12 +658,15 @@ export class MapView {
     else if (id === 'nodes' && obj) this.onClick({ lngLat, kind: 'node', id: obj.i as number });
     else if (id === 'hotspots' && obj) this.onClick({ lngLat, kind: 'hotspot', hotspot: obj as unknown as Hotspot });
     else if (id === 'markers' && obj) this.onClick({ lngLat, kind: 'marker', id: obj.index as number });
+    else if (id === 'rain-zones' && obj) this.onClick({ lngLat, kind: 'zone', id: obj.index as number });
+    else if (id === 'accidents' && obj) this.onClick({ lngLat, kind: 'accident', accident: obj as unknown as Accident });
     else this.onClick({ lngLat });
   }
 
   private tooltip(info: PickingInfo): { html: string; className: string } | null {
     const obj = info.object as Record<string, unknown> | undefined;
     if (!obj || !info.layer) return null;
+    if (state.tool.kind === 'rain-zone') return null;
     const box = (html: string) => ({ html, className: 'map-tooltip' });
     switch (info.layer.id) {
       case 'links': {
@@ -508,28 +676,28 @@ export class MapView {
         const cur = aggTt(state.current, l, a, b);
         const ff = state.current.freeFlow[l];
         const sf = state.current.meta.summary.sample_fraction || 1;
-        const tt = (x: number) => (x >= 0 ? `${fmt(x / 1000, 0)} s` : 'no vehicles');
-        let rows = `<div><b>${esc(this.net.linkName(l))}</b></div><div class="muted">${link ? `${esc(link.road_class)} · ${link.lanes} lanes · ${link.maxspeed_kmh} km/h · ${fmt(link.length_m)} m` : 'new road'}</div>`;
-        rows += `<div>${state.result ? 'Scenario' : 'Baseline'} travel time: <b>${tt(cur.tt)}</b> <span class="muted">(free flow ${fmt(ff / 1000, 0)} s)</span></div>`;
-        if (state.result && state.reference) rows += `<div>Reference: ${tt(aggTt(state.reference, l, a, b).tt)}</div>`;
-        rows += `<div class="muted">≈${fmt(cur.count / sf, 0)} vehicles entering per 10 min (simulated sample ×${fmt(1 / sf, 0)})</div>`;
+        const tt = (x: number) => (x >= 0 ? `${fmt(x / 1000, 0)} s` : t('no vehicles'));
+        let rows = `<div><b>${esc(this.net.linkName(l))}</b></div><div class="muted">${link ? `${esc(roadClassName(link.road_class))} · ${tn(link.lanes, '{n} lane', '{n} lanes')} · ${link.maxspeed_kmh} km/h · ${fmt(link.length_m)} m` : t('new road')}</div>`;
+        rows += `<div>${state.result ? t('Scenario travel time:') : t('Baseline travel time:')} <b>${tt(cur.tt)}</b> <span class="muted">(${t('free flow {n} s', { n: fmt(ff / 1000, 0) })})</span></div>`;
+        if (state.result && state.reference) rows += `<div>${t('Reference:')} ${tt(aggTt(state.reference, l, a, b).tt)}</div>`;
+        rows += `<div class="muted">${t('≈{n} vehicles entering per 10 min (simulated sample ×{k})', { n: fmt(cur.count / sf, 0), k: fmt(1 / sf, 0) })}</div>`;
         const est = (state.current.accessVolume[l] ?? 0) * localAccessFactor(state.current, a, b);
         if (est > 0)
-          rows += `<div class="muted">Local access estimate: ≈${fmt(est / sf, 0)} per 10 min · ${fmt(state.current.accessVolume[l], 0)} over the morning (residents to/from the main roads; not simulated)</div>`;
+          rows += `<div class="muted">${t('Local access estimate: ≈{n} per 10 min · {m} over the morning (residents to/from the main roads; not simulated)', { n: fmt(est / sf, 0), m: fmt(state.current.accessVolume[l], 0) })}</div>`;
         return box(rows);
       }
       case 'flood': {
         const step = this.floodStep();
-        return box(`<div><b>${esc(this.net.linkName(obj.id as number))}</b></div><div>Flood depth: <b>${fmt((obj.depth as number[])[step] ?? 0)} cm</b> at ${formatTime(state.time)}</div>`);
+        return box(`<div><b>${esc(this.net.linkName(obj.id as number))}</b></div><div>${t('Flood depth:')} <b>${fmt((obj.depth as number[])[step] ?? 0)} cm</b> ${t('at {time}', { time: formatTime(state.time) })}</div>`);
       }
       case 'nodes': {
         const i = obj.i as number;
-        return box(`<div><b>${esc(this.net.nodeName(i))}</b></div><div class="muted">node ${i} · ${obj.signal ? 'signalised' : 'no signal'} · click to edit</div>`);
+        return box(`<div><b>${esc(this.net.nodeName(i))}</b></div><div class="muted">${t('node {id}', { id: i })} · ${obj.signal ? t('signalised') : t('no signal')} · ${t('click to edit')}</div>`);
       }
       case 'hotspots': {
         const h = obj as unknown as Hotspot;
         return box(
-          `<div><b>Flood hotspot</b></div><div>${esc(h.label)}</div><div class="muted">${esc(h.kind)} · observed ${esc(h.observed ?? '–')} · confidence ${esc(h.confidence)}</div><div class="muted small">${esc(h.source)}</div>`,
+          `<div><b>${t('Flood hotspot')}</b></div><div>${esc(h.label)}</div><div class="muted">${esc(t(h.kind))} · ${esc(t('observed {d}', { d: h.observed ?? '–' }))} · ${esc(t('confidence {c}', { c: t(h.confidence) }))}</div><div class="muted small">${esc(h.source)}</div>`,
         );
       }
       case 'metro': {
@@ -538,10 +706,18 @@ export class MapView {
       }
       case 'metro-stations': {
         const m = obj as unknown as MetroStation;
-        return box(`<div><b>Ⓜ ${esc(m.name)}</b></div><div class="muted">${esc(m.ref.replace(/^T/, 'Line '))}${m.nameEn && m.nameEn !== m.name ? ` · ${esc(m.nameEn)}` : ''}</div>`);
+        return box(`<div><b>Ⓜ ${esc(m.name)}</b></div><div class="muted">${esc(m.ref.replace(/^T/, `${t('Line')} `))}${m.nameEn && m.nameEn !== m.name ? ` · ${esc(m.nameEn)}` : ''}</div>`);
+      }
+      case 'rain-zones': {
+        const z = obj as unknown as ZoneDatum;
+        return box(`<div><b>${esc(z.label)}</b></div><div>${rainAt(z.profile, state.time / 60_000)} mm/h ${t('at {time}', { time: formatTime(state.time) })}</div><div class="muted">${t('click to edit')}</div>`);
+      }
+      case 'accidents': {
+        const a = obj as unknown as Accident;
+        return box(`<div><b>${t('Accident')}</b> · ${esc(this.net.linkName(a.link))}</div><div>${formatTime(a.from_ms)}–${formatTime(a.to_ms)} · ${t('{p}% capacity left', { p: Math.round(a.capacity_factor * 100) })}</div>`);
       }
       case 'markers':
-        return box(`<div><b>${esc(obj.label as string)}</b></div><div class="muted">${(obj.index as number) >= 0 ? 'click for options' : 'now click node B'}</div>`);
+        return box(`<div><b>${esc(obj.label as string)}</b></div><div class="muted">${(obj.index as number) >= 0 ? t('click for options') : t('now click node B')}</div>`);
     }
     return null;
   }

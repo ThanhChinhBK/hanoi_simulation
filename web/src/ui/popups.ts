@@ -1,33 +1,45 @@
-import * as maplibregl from 'maplibre-gl';
+import type { Map as MlMap } from 'maplibre-gl';
 import { state } from '../state';
 import type { Network } from '../network';
 import type { MapView } from '../map/mapView';
 import type { Hotspot, ScenarioEvent } from '../types';
 import type { LngLat } from '../logic/trips';
 import { parseTime } from '../logic/time';
-import { fmt, h } from './dom';
+import { fmt, h, icon } from './dom';
+import { greensToPlan, planToGreens } from '../logic/signals';
+import { formatTime } from '../logic/time';
+import type { Accident } from '../types';
+import { t, tn } from '../i18n';
+import { roadClassName } from '../logic/roadClass';
 
 export const ROAD_CLASSES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street'];
 
-let popup: maplibregl.Popup | null = null;
+let inspector: HTMLElement | null = null;
 
-export function closePopup() {
-  popup?.remove();
-  popup = null;
+/** The inspector is a floating panel on the right of the map (replaces map popups). */
+export function mountInspector(el: HTMLElement) {
+  inspector = el;
+  el.hidden = true;
 }
 
-function open(map: maplibregl.Map, at: LngLat, content: HTMLElement) {
-  closePopup();
-  popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '340px', className: 'edit-popup' })
-    .setLngLat(at)
-    .setDOMContent(content)
-    .addTo(map);
-  popup.on('close', () => {
-    if (state.selection.link !== undefined || state.selection.node !== undefined) {
-      state.selection = {};
-      state.emit('selection');
-    }
-  });
+export function closePopup() {
+  if (!inspector || inspector.hidden) return;
+  inspector.hidden = true;
+  inspector.replaceChildren();
+  if (state.selection.link !== undefined || state.selection.node !== undefined || state.selection.event !== undefined) {
+    state.selection = {};
+    state.emit('selection');
+  }
+}
+
+function open(_map: MlMap, _at: LngLat, content: HTMLElement) {
+  if (!inspector) return;
+  inspector.replaceChildren(
+    h('button.icon-btn.inspector-close', { type: 'button', 'aria-label': t('Close inspector'), title: t('Close (Esc)'), onclick: () => closePopup() }, icon('x')),
+    content,
+  );
+  inspector.hidden = false;
+  inspector.scrollTop = 0;
 }
 
 const field = (label: string, input: HTMLElement, hint?: string) => h('label.field', h('span.field-label', label), input, hint ? h('span.hint', hint) : null);
@@ -43,8 +55,8 @@ function numInput(value: number, min: number, max: number, step: number) {
 function validWindow(from: string, to: string): string | null {
   const a = parseTime(from);
   const b = parseTime(to);
-  if (Number.isNaN(a) || Number.isNaN(b)) return 'Enter both times';
-  if (b <= a) return '“To” must be after “from”';
+  if (Number.isNaN(a) || Number.isNaN(b)) return t('Enter both times');
+  if (b <= a) return t('“To” must be after “from”');
   return null;
 }
 
@@ -53,7 +65,11 @@ function errorLine() {
 }
 
 export class Popups {
-  constructor(private view: MapView, private net: Network) {}
+  constructor(
+    private view: MapView,
+    private net: Network,
+    private edit: (index: number) => void = () => {},
+  ) {}
 
   private added(msg: string) {
     closePopup();
@@ -79,7 +95,7 @@ export class Popups {
       const err = validWindow(incFrom.value, incTo.value);
       if (err) return void (incErr.textContent = err);
       for (const id of ids()) state.addEvent({ type: 'incident', link: id, from: incFrom.value, to: incTo.value, capacity_factor: Number(cap.value) });
-      this.added('Incident added');
+      this.added(t('Incident added'));
     };
 
     const allDay = h('input', { type: 'checkbox', checked: true });
@@ -99,7 +115,7 @@ export class Popups {
         if (err) return void (clErr.textContent = err);
         state.addEvent({ type: 'closure', links: ids(), from: clFrom.value, to: clTo.value });
       }
-      this.added('Closure added');
+      this.added(t('Closure added'));
     };
 
     const lanes = numInput(l?.lanes ?? 1, 1, 8, 1);
@@ -113,44 +129,46 @@ export class Popups {
         if (ev.lanes === undefined && ev.maxspeed_kmh === undefined) continue;
         state.addEvent(ev);
       }
-      this.added('Road change added (structural)');
+      this.added(t('Road change added (structural)'));
     };
 
     const content = h(
       'div.popup',
+      { 'data-testid': 'inspector-road' },
+      h('div.popup-kicker', icon('road', 14), t('Road')),
       h('div.popup-title', n.linkName(link)),
       h(
         'div.popup-meta',
         l
-          ? `${l.road_class.replace('_', ' ')} · ${l.lanes} lane${l.lanes === 1 ? '' : 's'} · ${l.maxspeed_kmh} km/h · ${fmt(l.length_m)} m${l.bridge ? ' · bridge' : ''}${l.tunnel ? ' · tunnel' : ''}`
-          : 'road added by the scenario',
+          ? `${roadClassName(l.road_class)} · ${tn(l.lanes, '{n} lane', '{n} lanes')} · ${l.maxspeed_kmh} km/h · ${fmt(l.length_m)} m${l.bridge ? ` · ${t('bridge')}` : ''}${l.tunnel ? ` · ${t('tunnel')}` : ''}`
+          : t('road added by the scenario'),
       ),
-      h('div.popup-meta.muted', `link #${link}${twin !== null ? ` · reverse #${twin}` : ' · one-way'}`),
-      l ? h('label.check', both, ' Apply to both directions') : null,
+      h('div.popup-meta.muted', `${t('link #{id}', { id: link })}${twin !== null ? ` · ${t('reverse #{id}', { id: twin })}` : ` · ${t('one-way')}`}`),
+      l ? h('label.check', both, ` ${t('Apply to both directions')}`) : null,
       l
         ? [
             h(
               'details',
               { open: true },
-              h('summary', 'Incident (temporary capacity loss)'),
-              field('Remaining capacity', h('div.row', cap, capLabel)),
-              h('div.row', field('From', incFrom), field('To', incTo)),
+              h('summary', t('Incident (temporary capacity loss)')),
+              field(t('Remaining capacity'), h('div.row', cap, capLabel)),
+              h('div.row', field(t('From'), incFrom), field(t('To'), incTo)),
               incErr,
-              h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: addIncident, 'data-testid': 'add-incident' }, 'Add incident'),
+              h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: addIncident, 'data-testid': 'add-incident' }, t('Add incident')),
             ),
             h(
               'details',
-              h('summary', 'Closure'),
-              h('label.check', allDay, ' All day'),
-              h('div.row', field('From', clFrom), field('To', clTo)),
+              h('summary', t('Closure')),
+              h('label.check', allDay, ` ${t('All day')}`),
+              h('div.row', field(t('From'), clFrom), field(t('To'), clTo)),
               clErr,
-              h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: addClosure }, 'Close road'),
+              h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: addClosure }, t('Close road')),
             ),
             h(
               'details',
-              h('summary', 'Modify road ', h('span.badge.badge-structural', 'structural')),
-              h('div.row', field('Lanes', lanes), field('Speed km/h', speed)),
-              h('button.btn.btn-sm', { type: 'button', onclick: modify }, 'Apply change'),
+              h('summary', `${t('Modify road')} `, h('span.badge.badge-structural', t('structural'))),
+              h('div.row', field(t('Lanes'), lanes), field(t('Speed km/h'), speed)),
+              h('button.btn.btn-sm', { type: 'button', onclick: modify }, t('Apply change')),
             ),
             h(
               'div.popup-actions',
@@ -160,10 +178,10 @@ export class Popups {
                   type: 'button',
                   onclick: () => {
                     state.addEvent({ type: 'remove_road', links: ids() });
-                    this.added('Road removal added (structural)');
+                    this.added(t('Road removal added (structural)'));
                   },
                 },
-                'Remove road permanently',
+                t('Remove road permanently'),
               ),
             ),
           ]
@@ -178,48 +196,46 @@ export class Popups {
     state.selection = { node };
     state.emit('selection');
     const existing = state.scenario.events.find((e): e is Extract<ScenarioEvent, { type: 'signal' }> => e.type === 'signal' && e.node === node);
-    const defaultCycle = state.paramValue('signal.cycle_s') || 120;
-    const cycle = h('input', { type: 'range', min: '40', max: '240', step: '5', value: String(existing?.cycle_s ?? defaultCycle) });
-    const cycleLabel = h('span.value');
-    const ns = h('input', { type: 'range', min: '0.1', max: '0.9', step: '0.05', value: String(existing ? existing.green_split.north_south / (existing.green_split.north_south + existing.green_split.east_west) : 0.5) });
-    const nsLabel = h('span.value');
+    const lost = state.paramValue('signal.lost_time_s') || 0;
+    const cycle = state.paramValue('signal.cycle_s') || 120;
+    const def = state.signalPlans.get(node);
+    const defGreens = def ? planToGreens(cycle, def.green_split, lost) : planToGreens(cycle, { north_south: 0.5, east_west: 0.5 }, lost);
+    const cur = existing ? planToGreens(existing.cycle_s, existing.green_split, lost) : defGreens;
+    const ns = numInput(cur.ns, 5, 200, 1);
+    const ew = numInput(cur.ew, 5, 200, 1);
+    ns.setAttribute('data-testid', 'inspector-green-ns');
+    ew.setAttribute('data-testid', 'inspector-green-ew');
+    const total = h('div.hint');
     const sync = () => {
-      cycleLabel.textContent = `${cycle.value} s`;
-      const v = Number(ns.value);
-      nsLabel.textContent = `NS ${Math.round(v * 100)}% · EW ${Math.round((1 - v) * 100)}%`;
+      const c = Math.max(1, Number(ns.value)) + Math.max(1, Number(ew.value)) + lost;
+      total.textContent = t('Cycle {c} s = {ns} s + {ew} s green + {lost} s amber/clearance. A driver waits up to ~{wait} s on red.', { c: fmt(c), ns: ns.value, ew: ew.value, lost: fmt(lost), wait: fmt(c - Math.min(Number(ns.value), Number(ew.value))) });
     };
-    cycle.addEventListener('input', sync);
     ns.addEventListener('input', sync);
+    ew.addEventListener('input', sync);
     sync();
     const apply = () => {
-      const v = Number(ns.value);
-      state.replaceEvents((e) => e.type === 'signal' && e.node === node, {
-        type: 'signal',
-        node,
-        cycle_s: Number(cycle.value),
-        green_split: { north_south: Math.round(v * 100) / 100, east_west: Math.round((1 - v) * 100) / 100 },
-      });
-      this.added(nd.signal ? 'Signal plan changed' : 'Signal added');
+      state.replaceEvents((e) => e.type === 'signal' && e.node === node, { type: 'signal', node, ...greensToPlan({ ns: Number(ns.value), ew: Number(ew.value) }, lost) });
+      this.added(nd.signal ? t('Signal timing changed') : t('Signal added'));
+      const i = state.scenario.events.length - 1;
+      this.edit(i);
     };
     const content = h(
       'div.popup',
+      { 'data-testid': 'inspector-junction' },
+      h('div.popup-kicker', { dataset: { layer: 'signal' } }, icon('signal', 14), nd.signal ? t('Signalised junction') : t('Junction (no signal)')),
       h('div.popup-title', n.nodeName(node)),
-      h(
-        'div.popup-meta',
-        nd.signal ? h('span.badge.badge-ok', 'signalised') : h('span.badge', 'no signal'),
-        ` node #${node} · ${fmt(nd.elev_m, 0)} m elevation`,
-      ),
+      h('div.popup-meta', t('node #{id} · {m} m elevation', { id: node, m: fmt(nd.elev_m, 0) })),
       h(
         'p.hint',
         nd.signal
-          ? `Default plan: ${defaultCycle} s cycle, green split by approach. Green shares apply to north–south vs east–west approaches.`
-          : 'Not signalised in the base network. Applying a plan adds a signal here.',
+          ? t('Now: north–south {ns} s, east–west {ew} s of green per {c} s cycle.', { ns: defGreens.ns, ew: defGreens.ew, c: fmt(cycle) })
+          : t('Not signalised in the base network. Applying a timing adds a signal here.'),
       ),
-      field('Cycle length', h('div.row', cycle, cycleLabel)),
-      field('Green split', h('div.row', ns, nsLabel), 'Left: more east–west green · right: more north–south'),
+      h('div.row', field(t('North–south green (s)'), ns), field(t('East–west green (s)'), ew)),
+      total,
       h(
         'div.popup-actions',
-        h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: apply }, existing ? 'Update signal plan' : nd.signal ? 'Apply signal plan' : 'Add signal'),
+        h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: apply, 'data-testid': 'apply-signal' }, existing ? t('Update timing') : nd.signal ? t('Apply timing') : t('Add signal')),
         existing
           ? h(
               'button.btn.btn-sm',
@@ -227,23 +243,23 @@ export class Popups {
                 type: 'button',
                 onclick: () => {
                   state.replaceEvents((e) => e.type === 'signal' && e.node === node, null);
-                  this.added('Signal change removed');
+                  this.added(t('Signal timing reverted'));
                 },
               },
-              'Revert',
+              t('Revert'),
             )
           : null,
         h(
-          'button.btn.btn-sm',
+          'button.btn.btn-ghost.btn-sm',
           {
             type: 'button',
             onclick: () => {
               closePopup();
               state.setTool({ kind: 'add-road', fromNode: node });
-              toast('Now click the node where the new road should end');
+              toast(t('Now click the junction where the new road should end'));
             },
           },
-          'New road from here',
+          t('New road from here'),
         ),
       ),
     );
@@ -253,10 +269,10 @@ export class Popups {
   addRoad(from: number, to: number) {
     const n = this.net;
     const b = state.build;
-    const cls = h('select', ROAD_CLASSES.map((c) => h('option', { value: c, selected: c === b.roadClass }, c.replace('_', ' '))));
+    const cls = h('select', ROAD_CLASSES.map((c) => h('option', { value: c, selected: c === b.roadClass }, roadClassName(c))));
     const lanes = numInput(b.lanes, 1, 6, 1);
     const oneway = h('input', { type: 'checkbox', checked: b.oneway });
-    const name = h('input', { type: 'text', value: 'New road', maxLength: 60 });
+    const name = h('input', { type: 'text', value: t('New road'), maxLength: 60 });
     const [a, c] = [n.nodePos(from), n.nodePos(to)];
     const km = Math.hypot((c[0] - a[0]) * Math.cos((a[1] * Math.PI) / 180), c[1] - a[1]) * 111.32;
     const add = () => {
@@ -265,18 +281,18 @@ export class Popups {
       b.oneway = oneway.checked;
       state.addEvent({ type: 'add_road', from_node: from, to_node: to, road_class: cls.value, lanes: Number(lanes.value), oneway: oneway.checked, name: name.value || undefined });
       state.setTool({ kind: 'select' });
-      this.added('New road added (structural)');
+      this.added(t('New road added (structural)'));
     };
     const content = h(
       'div.popup',
-      h('div.popup-title', 'New road'),
-      h('div.popup-meta', `${n.nodeName(from)} → ${n.nodeName(to)} · ${fmt(km, 2)} km straight line`),
-      h('div.row', field('Class', cls), field('Lanes / dir.', lanes)),
-      h('label.check', oneway, ' One-way (A → B only)'),
-      field('Name', name),
+      h('div.popup-title', t('New road')),
+      h('div.popup-meta', `${n.nodeName(from)} → ${n.nodeName(to)} · ${t('{km} km straight line', { km: fmt(km, 2) })}`),
+      h('div.row', field(t('Class'), cls), field(t('Lanes / dir.'), lanes)),
+      h('label.check', oneway, ` ${t('One-way (A → B only)')}`),
+      field(t('Name'), name),
       h(
         'div.popup-actions',
-        h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: add }, 'Add road'),
+        h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: add }, t('Add road')),
         h(
           'button.btn.btn-sm',
           {
@@ -286,7 +302,7 @@ export class Popups {
               state.setTool({ kind: 'select' });
             },
           },
-          'Cancel',
+          t('Cancel'),
         ),
       ),
     );
@@ -299,28 +315,43 @@ export class Popups {
       at,
       h(
         'div.popup',
-        h('div.popup-title', 'Flood hotspot'),
+        h('div.popup-title', t('Flood hotspot')),
         h('div', hs.label),
-        h('div.popup-meta', `${hs.kind} · ${hs.links.length} links · observed ${hs.observed ?? '–'}`),
-        h('div.popup-meta', 'Confidence: ', h(`span.badge.conf-${hs.confidence}`, hs.confidence)),
-        h('p.hint', 'Source: ', hs.source),
+        h('div.popup-meta', `${t(hs.kind)} · ${tn(hs.links.length, '{n} link', '{n} links')} · ${t('observed {d}', { d: hs.observed ?? '–' })}`),
+        h('div.popup-meta', `${t('Confidence:')} `, h(`span.badge.conf-${hs.confidence}`, t(hs.confidence))),
+        h('p.hint', `${t('Source:')} `, hs.source),
       ),
     );
   }
 
-  marker(index: number, at: LngLat) {
+  /** Scenario item placed on the map (marker or rain zone). */
+  marker(index: number, _at?: LngLat) {
     const ev = state.scenario.events[index];
     if (!ev) return;
     const d = this.net.describe(ev);
+    state.selection = { event: index };
+    state.emit('selection');
     open(
       this.view.map,
-      at,
+      [0, 0],
       h(
         'div.popup',
+        h('div.popup-kicker', { dataset: { layer: LAYER_OF[ev.type] ?? 'build' } }, d.structural ? t('Structural change') : t('Scenario item')),
         h('div.popup-title', d.title),
         h('div.popup-meta', d.detail),
         h(
           'div.popup-actions',
+          h(
+            'button.btn.btn-primary.btn-sm',
+            {
+              type: 'button',
+              onclick: () => {
+                closePopup();
+                this.edit(index);
+              },
+            },
+            t('Edit'),
+          ),
           h(
             'button.btn.btn-danger.btn-sm',
             {
@@ -330,13 +361,31 @@ export class Popups {
                 closePopup();
               },
             },
-            'Remove',
+            t('Remove'),
           ),
         ),
       ),
     );
   }
+
+  accident(a: Accident) {
+    state.selection = { link: a.link };
+    state.emit('selection');
+    open(
+      this.view.map,
+      [0, 0],
+      h(
+        'div.popup',
+        h('div.popup-kicker', { dataset: { layer: 'accident' } }, icon('alert', 14), t('Accident (random)')),
+        h('div.popup-title', this.net.linkName(a.link)),
+        h('div.popup-meta', `${formatTime(a.from_ms)}–${formatTime(a.to_ms)} · ${t('{p}% of capacity left', { p: Math.round(a.capacity_factor * 100) })}`),
+        h('p.hint', t('Drawn at random from the accident rate in the scenario (more likely in rain). Change the rate in Setup → Accidents & incidents.')),
+      ),
+    );
+  }
 }
+
+const LAYER_OF: Record<string, string> = { rain: 'rain', signal: 'signal', event: 'event', incident: 'accident', closure: 'accident', accidents: 'accident' };
 
 let toastTimer = 0;
 export function toast(msg: string, kind: 'info' | 'error' = 'info') {

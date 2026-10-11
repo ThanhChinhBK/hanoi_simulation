@@ -1,8 +1,9 @@
 # Hanoi traffic what-if sandbox
 
 Interactive, browser-based simulation of Hanoi traffic (motorbike-dominated, city scale)
-with rain/flood scenarios. Change rain, signals, incidents, closures, roads, housing,
-jobs, big events or any model parameter, run it in the browser, and see which areas get
+with rain/flood scenarios. Set up a scenario — draw rain zones on the map, change green
+times at junctions, add events, random accidents, incidents, closures, roads, housing,
+jobs or any model parameter — run it in the browser, and see which areas get
 better or worse than on a normal day. Results are **comparative**, not forecasts; every
 parameter shows its source and confidence.
 
@@ -39,13 +40,14 @@ Tests: `cargo test --workspace --release`, `cd pipeline && uv run pytest`,
 
 ## Scenario kinds
 
-- **Sudden** (incident, closure, rain/flood, signal timing, big event): one run from the
+- **Sudden** (rain zones/flood, accidents, incident, closure, signal timing, big event): one run from the
   baseline routes with en-route rerouting (~1–2 s). Compared with the baseline.
 - **Structural** (new/removed/modified roads, housing, jobs, population or trip-rate
   changes): demand and network are rebuilt and replanned (~10–30 s). Compared with a
   *control* run (the unchanged baseline through the same replanning), so noise cancels.
 
-See `engine/README.md` for the model, `web/README.md` for the app.
+See `engine/README.md` for the model, `web/README.md` for the app and
+`docs/design-system.md` for the UI design system.
 
 ## Data & licences
 

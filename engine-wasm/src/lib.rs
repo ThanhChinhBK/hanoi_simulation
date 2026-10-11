@@ -63,6 +63,25 @@ impl WasmEngine {
         serde_json::to_string(self.engine.params()).map_err(err)
     }
 
+    /// Default plan of every signalised junction, as JSON
+    /// `[{node, cycle_s, green_split: {north_south, east_west}}]`.
+    #[wasm_bindgen(js_name = signalPlans)]
+    pub fn signal_plans(&self) -> Result<String, JsError> {
+        #[derive(Serialize)]
+        struct Row {
+            node: u32,
+            #[serde(flatten)]
+            plan: hanoi_engine::signals::SignalPlan,
+        }
+        let rows: Vec<Row> = self
+            .engine
+            .signal_plans()
+            .into_iter()
+            .map(|(node, plan)| Row { node, plan })
+            .collect();
+        serde_json::to_string(&rows).map_err(err)
+    }
+
     pub fn baseline(&self) -> RunResult {
         RunResult(self.engine.baseline().clone())
     }
@@ -108,6 +127,7 @@ struct Meta<'a> {
     flood: &'a hanoi_engine::flood::FloodSeries,
     added_links: &'a [hanoi_engine::scenario::AddedLink],
     removed_links: &'a [u32],
+    accidents: &'a [hanoi_engine::scenario::Accident],
 }
 
 #[wasm_bindgen]
@@ -127,6 +147,7 @@ impl RunResult {
             flood: &o.flood,
             added_links: &o.added_links,
             removed_links: &o.removed_links,
+            accidents: &o.accidents,
         })
         .map_err(err)
     }

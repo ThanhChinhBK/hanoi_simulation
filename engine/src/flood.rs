@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::bundle::{BCatchment, City};
-use crate::ids::LinkId;
+use crate::ids::{LinkId, NodeId};
 use crate::params::Params;
 use crate::units::TimeMs;
 
@@ -59,6 +59,136 @@ impl RainProfile {
 
     pub fn is_empty(&self) -> bool {
         self.points.iter().all(|p| p.1 <= 0.0)
+    }
+}
+
+/// Polygon vertices in projected metres (x, y).
+pub type Polygon = Vec<(f64, f64)>;
+
+/// Rain over the city: one or more cells, each a profile over an optional area
+/// (polygon in projected metres; `None` = the whole city). Where cells overlap, the
+/// heaviest rain applies. Links and nodes are assigned to cells once, by position.
+#[derive(Clone, Debug, Default)]
+pub struct RainField {
+    cells: Vec<RainProfile>,
+    citywide: Vec<usize>,
+    link_cells: Vec<Vec<u16>>,
+    node_cells: Vec<Vec<u16>>,
+}
+
+/// Ray-casting point-in-polygon test (polygon as a closed or open ring).
+pub fn point_in_polygon(x: f64, y: f64, poly: &[(f64, f64)]) -> bool {
+    let mut inside = false;
+    let n = poly.len();
+    let mut j = n.wrapping_sub(1);
+    for i in 0..n {
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+        if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+impl RainField {
+    /// The same rain everywhere.
+    pub fn uniform(profile: RainProfile) -> Self {
+        Self::new_cells(vec![profile], vec![0], Vec::new(), Vec::new())
+    }
+
+    /// Cells with optional areas (projected polygons, at least 3 points).
+    pub fn new(city: &City, cells: Vec<(RainProfile, Option<Polygon>)>) -> Result<Self, String> {
+        if cells.len() > u16::MAX as usize {
+            return Err("too many rain cells".into());
+        }
+        let net = &city.net;
+        let mut citywide = Vec::new();
+        let mut link_cells = vec![Vec::new(); net.links().len()];
+        let mut node_cells = vec![Vec::new(); net.nodes().len()];
+        let mut profiles = Vec::with_capacity(cells.len());
+        for (k, (profile, area)) in cells.into_iter().enumerate() {
+            match area {
+                None => citywide.push(k),
+                Some(poly) => {
+                    if poly.len() < 3 {
+                        return Err("rain area needs at least 3 points".into());
+                    }
+                    for n in net.nodes() {
+                        if point_in_polygon(n.x, n.y, &poly) {
+                            node_cells[n.id.idx()].push(k as u16);
+                        }
+                    }
+                    for (i, l) in net.links().iter().enumerate() {
+                        let (a, b) = (net.node(l.from), net.node(l.to));
+                        if point_in_polygon((a.x + b.x) / 2.0, (a.y + b.y) / 2.0, &poly) {
+                            link_cells[i].push(k as u16);
+                        }
+                    }
+                }
+            }
+            profiles.push(profile);
+        }
+        Ok(Self::new_cells(profiles, citywide, link_cells, node_cells))
+    }
+
+    fn new_cells(
+        cells: Vec<RainProfile>,
+        citywide: Vec<usize>,
+        link_cells: Vec<Vec<u16>>,
+        node_cells: Vec<Vec<u16>>,
+    ) -> Self {
+        Self {
+            cells,
+            citywide,
+            link_cells,
+            node_cells,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cells.iter().all(|c| c.is_empty())
+    }
+
+    /// Heaviest rain anywhere in the city.
+    pub fn max_intensity(&self, t: TimeMs) -> f64 {
+        self.cells
+            .iter()
+            .map(|c| c.intensity(t))
+            .fold(0.0, f64::max)
+    }
+
+    fn at(&self, local: Option<&Vec<u16>>, t: TimeMs) -> f64 {
+        let mut v = self
+            .citywide
+            .iter()
+            .map(|&k| self.cells[k].intensity(t))
+            .fold(0.0, f64::max);
+        for &k in local.into_iter().flatten() {
+            v = v.max(self.cells[k as usize].intensity(t));
+        }
+        v
+    }
+
+    pub fn at_link(&self, l: LinkId, t: TimeMs) -> f64 {
+        self.at(self.link_cells.get(l.idx()), t)
+    }
+
+    pub fn at_node(&self, n: NodeId, t: TimeMs) -> f64 {
+        self.at(self.node_cells.get(n.idx()), t)
+    }
+
+    /// Mean intensity over a set of links (catchments: share of the area under rain).
+    pub fn mean_over_links(&self, links: &[u32], t: TimeMs) -> f64 {
+        if links.is_empty() || self.link_cells.is_empty() {
+            return self.at(None, t);
+        }
+        links
+            .iter()
+            .map(|&l| self.at_link(LinkId(l), t))
+            .sum::<f64>()
+            / links.len() as f64
     }
 }
 
@@ -128,10 +258,31 @@ impl FloodSeries {
     }
 }
 
+/// Flood series for the same rain everywhere.
 pub fn simulate(
     city: &City,
     p: &Params,
     rain: &RainProfile,
+    model: FloodModel,
+    start_ms: TimeMs,
+    end_ms: TimeMs,
+) -> FloodSeries {
+    simulate_field(
+        city,
+        p,
+        &RainField::uniform(rain.clone()),
+        model,
+        start_ms,
+        end_ms,
+    )
+}
+
+/// Flood series for rain that may differ by area: each hotspot gets the rain at its
+/// first link, each catchment the mean rain over its links.
+pub fn simulate_field(
+    city: &City,
+    p: &Params,
+    rain: &RainField,
     model: FloodModel,
     start_ms: TimeMs,
     end_ms: TimeMs,
@@ -163,8 +314,12 @@ pub fn simulate(
             );
             let mut d = vec![0.0f64; hotspots.len()];
             for s in 0..n_steps {
-                let i = rain.intensity(start_ms + s as TimeMs * step_ms);
+                let now = start_ms + s as TimeMs * step_ms;
                 for (h, hs) in hotspots.iter().enumerate() {
+                    let i = match hs.links.first() {
+                        Some(&l) => rain.at_link(LinkId(l), now),
+                        None => rain.max_intensity(now),
+                    };
                     let t = if hs.kind == "underpass" { thr_u } else { thr };
                     d[h] = if i > t {
                         (d[h] + rise * (i - t) * dt_h).min(max_d)
@@ -190,9 +345,13 @@ pub fn simulate(
             let cs = &city.bundle.catchments;
             let weights = low_link_weights(city, p.get("flood.low_link_share"));
             let mut st = BucketState::new(cs.len());
+            let mut per = vec![0.0; cs.len()];
             for s in 0..n_steps {
-                let i = rain.intensity(start_ms + s as TimeMs * step_ms);
-                st.step(cs, &b, i, dt_h);
+                let now = start_ms + s as TimeMs * step_ms;
+                for (k, c) in cs.iter().enumerate() {
+                    per[k] = rain.mean_over_links(&c.links, now);
+                }
+                st.step_field(cs, &b, &per, dt_h);
                 for (k, cm) in cs.iter().enumerate() {
                     let base_cm = (st.ponded[k] / share / 10.0).min(max_d);
                     if base_cm < 0.5 {
@@ -285,8 +444,19 @@ impl BucketState {
     /// One step: rain in, drainage out, storage first, then ponding; afterwards
     /// excess ponded water overflows to the lower neighbour (volumes conserved).
     pub fn step(&mut self, cs: &[BCatchment], b: &BucketParams, rain_mm_h: f64, dt_h: f64) {
+        self.step_field(cs, b, &vec![rain_mm_h; cs.len()], dt_h);
+    }
+
+    /// Like [`BucketState::step`] with rain per catchment.
+    pub fn step_field(
+        &mut self,
+        cs: &[BCatchment],
+        b: &BucketParams,
+        rain_mm_h: &[f64],
+        dt_h: f64,
+    ) {
         for (k, c) in cs.iter().enumerate() {
-            let inflow = b.inflow_share(c) * rain_mm_h * dt_h;
+            let inflow = b.inflow_share(c) * rain_mm_h[k] * dt_h;
             let s_max = b.storage_mm(c);
             self.rain_m3 += inflow / 1000.0 * c.area_m2;
             let to_store = inflow.min((s_max - self.stored[k]).max(0.0));

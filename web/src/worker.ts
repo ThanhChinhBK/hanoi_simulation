@@ -56,7 +56,7 @@ ctx.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
       ]);
       engine = new WasmEngine(bundle, routes ? new Uint8Array(routes) : undefined, progress(0));
       const baseline = wire(engine.baseline());
-      post({ type: 'ready', params: engine.params(), baseline }, transfers(baseline));
+      post({ type: 'ready', params: engine.params(), signalPlans: engine.signalPlans(), baseline }, transfers(baseline));
     } catch (e) {
       post({ type: 'error', id: 0, message: message(e) });
     }

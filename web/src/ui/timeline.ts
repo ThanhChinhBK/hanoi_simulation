@@ -1,25 +1,26 @@
+import { t, tn } from '../i18n';
 import { state } from '../state';
 import { formatTime } from '../logic/time';
 import { fmt, h, icon } from './dom';
 
 const SPEEDS = [
-  { v: 60, label: '1 min/s' },
-  { v: 300, label: '5 min/s' },
-  { v: 900, label: '15 min/s' },
+  { v: 60, label: t('{n} min/s', { n: 1 }) },
+  { v: 300, label: t('{n} min/s', { n: 5 }) },
+  { v: 900, label: t('{n} min/s', { n: 15 }) },
 ];
 
 export function timeline(): HTMLElement {
-  const playBtn = h('button.icon-btn.play', { type: 'button', 'aria-label': 'Play', title: 'Play / pause (space)' });
+  const playBtn = h('button.icon-btn.play', { type: 'button', 'aria-label': t('Play'), title: t('Play / pause (space)') });
   const timeLabel = h('div.time-label', { 'aria-live': 'off' });
-  const slider = h('input.time-slider', { type: 'range', step: '60000', 'aria-label': 'Time of day' });
-  const speed = h('select', { 'aria-label': 'Playback speed' }, SPEEDS.map((s) => h('option', { value: String(s.v), selected: s.v === state.speed }, s.label)));
+  const slider = h('input.time-slider', { type: 'range', step: '60000', 'aria-label': t('Time of day') });
+  const speed = h('select', { 'aria-label': t('Playback speed') }, SPEEDS.map((s) => h('option', { value: String(s.v), selected: s.v === state.speed }, s.label)));
   speed.addEventListener('change', () => (state.speed = Number(speed.value)));
-  const canvas = h('canvas.delay-chart', { 'aria-label': 'Network delay over time' });
+  const canvas = h('canvas.delay-chart', { 'aria-label': t('Network delay over time') });
   const legend = h('div.chart-legend');
 
   const syncPlay = () => {
     playBtn.replaceChildren(icon(state.playing ? 'pause' : 'play', 18));
-    playBtn.setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
+    playBtn.setAttribute('aria-label', state.playing ? t('Pause') : t('Play'));
   };
   playBtn.addEventListener('click', () => {
     state.playing = !state.playing;
@@ -116,6 +117,15 @@ export function timeline(): HTMLElement {
       ctx.stroke();
       ctx.setLineDash([]);
     };
+    // random accidents: red ticks at their start time
+    const acc = state.result?.meta.accidents ?? [];
+    if (acc.length) {
+      ctx.fillStyle = '#dc2626';
+      for (const a of acc) {
+        const ax = padL + ((a.from_ms - w.start_ms) / (n * w.bin_ms)) * pw;
+        if (ax >= padL && ax <= padL + pw) ctx.fillRect(ax - 1, padT + ph - 10, 2, 10);
+      }
+    }
     if (ref) line(ref.delay_veh_h, '#94a3b8', 2, [4, 3]);
     line(cur.delay_veh_h, state.result ? '#dc2626' : '#334155', 2);
     // cursor
@@ -133,10 +143,11 @@ export function timeline(): HTMLElement {
   const renderLegend = () => {
     legend.replaceChildren(
       ...[
-      h('span.lg', h('i.sw', { style: { background: state.result ? '#dc2626' : '#334155' } }), state.result ? 'Scenario' : 'Baseline'),
-      state.result ? h('span.lg', h('i.sw.dashed'), `Reference (${state.result.meta.reference})`) : null,
-      h('span.lg', h('i.sw.rain'), 'Rain'),
-      h('span.muted', 'delay, veh·h per 10 min'),
+      h('span.lg', h('i.sw', { style: { background: state.result ? '#dc2626' : '#334155' } }), state.result ? t('Scenario') : t('Baseline')),
+      state.result ? h('span.lg', h('i.sw.dashed'), t('Reference ({ref})', { ref: t(state.result.meta.reference) })) : null,
+      h('span.lg', h('i.sw.rain'), t('Rain (max over city)')),
+      state.result?.meta.accidents?.length ? h('span.lg', h('i.sw.accident'), tn(state.result.meta.accidents.length, '{n} accident', '{n} accidents')) : null,
+      h('span.muted', t('delay, veh·h per 10 min')),
       ].filter((x): x is HTMLSpanElement => x !== null),
     );
   };
@@ -165,7 +176,7 @@ export function timeline(): HTMLElement {
     slider.value = String(state.time);
     const b = state.bin;
     const binStart = w.start_ms + b * w.bin_ms;
-    timeLabel.replaceChildren(h('b', formatTime(state.time)), h('span.muted', ` bin ${formatTime(binStart)}–${formatTime(binStart + w.bin_ms)}`));
+    timeLabel.replaceChildren(h('b', formatTime(state.time)), h('span.muted', ` ${t('bin {from}–{to}', { from: formatTime(binStart), to: formatTime(binStart + w.bin_ms) })}`));
     draw();
   };
   state.on(['time', 'ready'], syncTime);

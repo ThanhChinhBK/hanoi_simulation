@@ -94,7 +94,8 @@ export interface GreenSplit {
 }
 
 export type ScenarioEvent =
-  | { type: 'rain'; profile: RainPoint[]; flood_model?: FloodModel }
+  | { type: 'rain'; profile: RainPoint[]; flood_model?: FloodModel; area?: [number, number][]; label?: string }
+  | { type: 'accidents'; per_hour: number; duration_min?: number; capacity_factor?: number; from?: string; to?: string }
   | { type: 'incident'; link: number; from: string; to: string; capacity_factor: number }
   | { type: 'signal'; node: number; cycle_s: number; green_split: GreenSplit }
   | { type: 'closure'; links: number[]; from?: string; to?: string }
@@ -137,6 +138,7 @@ export interface Summary {
   iterations: number;
   convergence_mean_trip_min: number[];
   flooded_links_max: number;
+  accidents?: number;
   warnings: string[];
 }
 
@@ -160,6 +162,20 @@ export interface RunMeta {
   flood: FloodSeries;
   added_links: { id: number; from: number; to: number }[];
   removed_links: number[];
+  accidents?: Accident[];
+}
+
+export interface Accident {
+  link: number;
+  from_ms: number;
+  to_ms: number;
+  capacity_factor: number;
+}
+
+export interface SignalPlan {
+  node: number;
+  cycle_s: number;
+  green_split: GreenSplit;
 }
 
 export interface Trace {
@@ -197,6 +213,6 @@ export interface WireRun {
 
 export type WorkerResponse =
   | { type: 'progress'; id: number; stage: string; fraction: number }
-  | { type: 'ready'; params: string; baseline: WireRun }
+  | { type: 'ready'; params: string; signalPlans: string; baseline: WireRun }
   | { type: 'result'; id: number; run: WireRun; control?: WireRun }
   | { type: 'error'; id: number; message: string };

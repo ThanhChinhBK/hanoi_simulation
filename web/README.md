@@ -30,7 +30,7 @@ If anything is missing, the script fails and says which pipeline step produces t
 
 ```
 src/
-  main.ts            bootstrap, sidebar tabs, map-click tools, URL sync, run handler
+  main.ts            bootstrap, top bar, sidebar tabs, map tools + polygon drawing, shortcuts, URL sync, run handler
   worker.ts          Web Worker that owns the WasmEngine
   engineClient.ts    promise-based wrapper around the worker
   state.ts           AppState: scenario, results, time, view, tool (tiny pub/sub)
@@ -38,7 +38,7 @@ src/
   logic/             pure, unit-tested logic: colors, link styling, trips, rain, scenario URL, time
   map/mapView.ts     MapLibre map + deck.gl MapboxOverlay
                      (links, flood, trips, nodes, hotspots, markers)
-  ui/                sidebar panels, popups, legend, timeline (vanilla TS, `h()` DOM helper)
+  ui/                top bar, setup/results/advanced panels, kit (sections, items, sliders), tool rail, inspector, legend, timeline (vanilla TS, `h()` DOM helper)
 ```
 
 ### Worker protocol
@@ -84,18 +84,25 @@ The scenario JSON is deflate-raw compressed with the browser `CompressionStream`
 
 ## Using it
 
-- **Scenario tab:** *Quick rain* card (rain intensity, start, duration, flooding: set a storm with three sliders). Below it: load an example, list or delete changes, Run, read the summary card.
-- **Auto-run** (on by default): sudden scenarios re-run about 0.6 s after each change. Structural changes take minutes, so they still need the Run button.
-- **Click a road:** incident, closure, modify road or remove road. The "both directions" option applies the action to the twin link too.
-- **Click a junction:** signal cycle and green split, or start a new road from that junction. Signalised junctions are always shown; all junctions appear at zoom ≥ 15.
-- **Rain tab:** presets, drag the 30-min bars to paint rain, choose the flood model.
-- **Build tab:** add road (click junction A, then junction B), housing, jobs, big event, population scale.
-- **Parameters tab:** every engine parameter, with unit, source, confidence and a data/assumption badge. Edits become `parameter_overrides`.
-- **Timeline:** play/pause (space bar), scrub, playback speed.
+The UI follows [`docs/design-system.md`](../docs/design-system.md): set up a scenario, then run it.
+
+- **Top bar:** scenario name, *Examples*, status chip (Baseline / Not run yet / Running / Up to date / Outdated), *Live update* (off by default: re-runs sudden scenarios ~0.6 s after each change), Share, Clear and **Run simulation** (Ctrl/⌘ + Enter).
+- **Setup tab**, one colour per layer (same colour on the map):
+  - *Weather & flooding* (blue): **Draw rain zone** (or press `R`): click corners on the map, then click the first corner, double-click or press Enter (Backspace undoes, Esc cancels). Or *Citywide rain*, or a historic storm. Each rain has intensity / start / duration sliders or a custom profile chart. One flood model for all rain.
+  - *Traffic signals* (amber): default cycle for all junctions; search a junction or click one on the map, then set north–south / east–west **green seconds**.
+  - *Events* (violet): people, arrival window, *Place on map* (`E`).
+  - *Accidents & incidents* (red): random accidents (rate per hour, how long each blocks, severity, time window, more in rain); incidents and closures added by clicking roads.
+  - *Road works & growth* (teal): new road, housing, jobs, population.
+- **Map tool rail** (left of the map): Select `V`, Rain zone `R`, Event `E`, New road, Housing, Jobs.
+- **Locate me** (top-right, under zoom): shows and follows your position via the browser Geolocation API. Needs HTTPS in production (localhost is fine) and the user's permission.
+- **Language** (VI | EN in the top bar): the UI defaults to Vietnamese. The choice is saved in `localStorage` (`hanoi-sim.lang`); `?lang=en` / `?lang=vi` forces it. Switching keeps the current scenario. Strings are wrapped in `t('English text')` / `tn(n, one, other)` from `src/i18n.ts`; add the Vietnamese text to `src/i18n.vi.ts` (`npm test` fails if a key is missing or placeholders differ). Engine parameter descriptions, warnings and data sources stay in English.
+- **Inspector** (right of the map): click a road (incident, closure, modify/remove), a junction (green seconds, new road from here), a rain zone, marker or accident.
+- **Results tab:** opens after a run: summary card, deltas, accident list, warnings.
+- **Advanced tab:** every engine parameter, with unit, source, confidence and a data/assumption badge. Edits become `parameter_overrides`.
+- **Timeline:** play/pause (space bar), scrub, speed; rain bars and accident ticks.
 
 ## Known limitations
 
 - Results are comparative and qualitative. Demand is synthetic: a 5 % sample of estimated trips.
 - Added roads are drawn as straight lines between junctions.
-- The signal popup cannot show a junction's current default plan, because the engine does not expose it.
 - The main JS chunk is about 1.8 MB (≈500 KB gzip), mostly deck.gl and MapLibre.

@@ -1,3 +1,5 @@
+import { locale } from '../i18n';
+
 type Attrs = Record<string, unknown>;
 type Child = Node | string | number | null | undefined | false | Child[];
 
@@ -38,7 +40,7 @@ export function clear(el: Element) {
 }
 
 export const fmt = (x: number, digits = 0) =>
-  Number.isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits }) : '–';
+  Number.isFinite(x) ? x.toLocaleString(locale, { maximumFractionDigits: digits, minimumFractionDigits: digits }) : '–';
 
 export function pct(a: number, b: number): number {
   return b !== 0 ? ((a - b) / Math.abs(b)) * 100 : 0;
@@ -62,6 +64,21 @@ const ICONS: Record<string, string> = {
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   run: '<polygon points="5 3 19 12 5 21 5 3"/>',
   zoom: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  locate: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/>',
+  signal: '<rect x="8" y="2" width="8" height="20" rx="3"/><circle cx="12" cy="7" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="17" r="1.5"/>',
+  alert: '<path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4M12 17h.01"/>',
+  build: '<path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-6h6v6"/>',
+  polygon: '<path d="M12 3 21 9.5 17.5 20h-11L3 9.5z"/><circle cx="12" cy="3" r="1.5"/><circle cx="21" cy="9.5" r="1.5"/><circle cx="3" cy="9.5" r="1.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
+  sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  chart: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-6"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  loader: '<path d="M21 12a9 9 0 1 1-6.2-8.6"/>',
+  layers: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
 };
 
 export function icon(name: keyof typeof ICONS | string, size = 16): SVGSVGElement {

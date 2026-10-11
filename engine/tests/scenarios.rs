@@ -221,6 +221,85 @@ fn storm_floods_hotspot_and_changes_behaviour() {
     assert!(bucket.summary.flooded_links_max > 0);
 }
 
+/// Polygon ([lat, lon]) around the grid's south-west quarter (rows/cols 0..=2).
+fn south_west_area() -> Value {
+    let (a, b) = (LAT0 - 0.001, LAT0 + 2.5 * STEP_DEG);
+    let (c, d) = (LON0 - 0.001, LON0 + 2.5 * STEP_DEG);
+    json!([[a, c], [a, d], [b, d], [b, c]])
+}
+
+#[test]
+fn rain_zone_only_affects_its_area() {
+    let storm = json!([{"at": "06:00", "mm_per_hour": 90}, {"at": "08:30", "mm_per_hour": 0}]);
+    let zoned = run(json!({"events": [{"type": "rain", "flood_model": "none",
+        "profile": storm, "area": south_west_area()}]}));
+    let city = run(json!({"events": [{"type": "rain", "flood_model": "none", "profile": storm}]}));
+    let b = engine().baseline();
+    assert!(zoned.rain_mm_h.iter().any(|&r| r >= 90.0));
+    let (zs, cs) = (&zoned.summary, &city.summary);
+    assert!(zs.trips_cancelled > 0, "{zs:?}");
+    assert!(zs.trips_cancelled < cs.trips_cancelled, "{zs:?} vs {cs:?}");
+    assert!(
+        zs.trips_delayed > 0 && zs.trips_delayed < cs.trips_delayed,
+        "{zs:?} vs {cs:?}"
+    );
+    let _ = b;
+    assert_conserved(&zoned);
+
+    // two overlapping zones are allowed, but must agree on the flood model
+    let two = run(json!({"events": [
+        {"type": "rain", "flood_model": "hotspots", "profile": storm, "area": south_west_area()},
+        {"type": "rain", "flood_model": "hotspots", "profile": [{"at": "07:00", "mm_per_hour": 30}]}]}));
+    assert_conserved(&two);
+    let sc = Scenario::from_json(
+        &json!({"events": [
+        {"type": "rain", "flood_model": "none", "profile": storm},
+        {"type": "rain", "flood_model": "bucket", "profile": storm}]})
+        .to_string(),
+    )
+    .unwrap();
+    assert!(engine().run(&sc, &mut |_, _| {}).is_err());
+}
+
+#[test]
+fn accidents_are_deterministic_and_rise_in_rain() {
+    let sc =
+        json!({"events": [{"type": "accidents", "per_hour": 6, "from": "06:00", "to": "09:00"}]});
+    let a = run(sc.clone());
+    assert_eq!(a, run(sc), "same seed → same accidents");
+    assert!(!a.accidents.is_empty());
+    assert_eq!(a.summary.accidents, a.accidents.len());
+    for x in &a.accidents {
+        assert!(x.from_ms >= 6 * 3_600_000 && x.from_ms < 9 * 3_600_000);
+        assert_eq!(x.to_ms - x.from_ms, 45 * 60_000);
+    }
+    assert!(a.summary.total_delay_veh_h >= engine().baseline().summary.total_delay_veh_h * 0.98);
+    assert_conserved(&a);
+
+    let ev = json!({"type": "accidents", "per_hour": 20, "from": "06:00", "to": "09:00"});
+    let dry = run(json!({"events": [ev.clone()]}));
+    let wet = run(
+        json!({"parameter_overrides": {"accidents.rain_multiplier": 4.0}, "events": [ev,
+        {"type": "rain", "flood_model": "none", "profile": [{"at": "05:00", "mm_per_hour": 60}, {"at": "10:00", "mm_per_hour": 0}]}]}),
+    );
+    assert!(
+        wet.accidents.len() > dry.accidents.len(),
+        "{} vs {}",
+        wet.accidents.len(),
+        dry.accidents.len()
+    );
+}
+
+#[test]
+fn signal_plans_cover_signalised_nodes() {
+    let plans = engine().signal_plans();
+    assert_eq!(plans.len(), 1);
+    let (node, p) = plans[0];
+    assert_eq!(node as usize, node_id(MAIN_ROW, MAIN_COL));
+    assert!(p.cycle_s > 0.0);
+    assert!((p.green_split.north_south + p.green_split.east_west - 1.0).abs() < 1e-9);
+}
+
 #[test]
 fn signal_retiming_changes_flows() {
     let b = engine().baseline();
@@ -284,6 +363,9 @@ fn invalid_scenarios_are_rejected() {
         json!({"events": [{"type": "closure", "links": [999999]}]}),
         json!({"events": [{"type": "incident", "link": 0, "from": "08:00", "to": "07:00", "capacity_factor": 0.5}]}),
         json!({"events": [{"type": "rain", "profile": [{"at": "25:99", "mm_per_hour": 5}]}]}),
+        json!({"events": [{"type": "rain", "profile": [{"at": "07:00", "mm_per_hour": 5}], "area": [[21.0, 105.8], [21.01, 105.8]]}]}),
+        json!({"events": [{"type": "accidents", "per_hour": -1}]}),
+        json!({"events": [{"type": "accidents", "per_hour": 2, "capacity_factor": 1.5}]}),
     ];
     for sc in bad {
         let s = Scenario::from_json(&sc.to_string());

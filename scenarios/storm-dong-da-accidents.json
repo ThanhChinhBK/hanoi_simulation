@@ -1,0 +1,39 @@
+{
+  "name": "Storm over Đống Đa, accidents and a retimed Ngã Tư Sở",
+  "description": "Rain zone drawn over Đống Đa (60 mm/h at 7:30), random accidents (more likely in the rain) and a longer east–west green at Ngã Tư Sở.",
+  "base": "hanoi-inner",
+  "events": [
+    {
+      "type": "rain",
+      "label": "Đống Đa storm",
+      "flood_model": "hotspots",
+      "area": [
+        [21.0035, 105.8105],
+        [21.0045, 105.8395],
+        [21.0215, 105.8445],
+        [21.0305, 105.8255],
+        [21.0215, 105.8075]
+      ],
+      "profile": [
+        { "at": "07:15", "mm_per_hour": 20 },
+        { "at": "07:30", "mm_per_hour": 60 },
+        { "at": "08:30", "mm_per_hour": 15 },
+        { "at": "09:00", "mm_per_hour": 0 }
+      ]
+    },
+    {
+      "type": "accidents",
+      "per_hour": 6,
+      "duration_min": 40,
+      "capacity_factor": 0.4,
+      "from": "06:00",
+      "to": "10:00"
+    },
+    {
+      "type": "signal",
+      "node": 7192,
+      "cycle_s": 132,
+      "green_split": { "north_south": 0.4, "east_west": 0.6 }
+    }
+  ]
+}
